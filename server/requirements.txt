@@ -1,0 +1,4 @@
+# Meeting-KI Server
+faster-whisper>=1.0.0     # lokale Sprache-zu-Text-Transkription
+anthropic>=0.40.0         # Claude-API für die Zusammenfassung
+python-dotenv>=1.0.0      # .env-Konfiguration laden

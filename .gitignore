@@ -1,0 +1,15 @@
+# --- Firmware / PlatformIO ---
+firmware/.pio/
+firmware/src/config.h
+
+# --- Python-Server ---
+server/.env
+server/.venv/
+__pycache__/
+*.pyc
+
+# --- Aufnahmen & Ergebnisse (nicht einchecken) ---
+server/recordings/*
+server/summaries/*
+!server/recordings/.gitkeep
+!server/summaries/.gitkeep

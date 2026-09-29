@@ -1,0 +1,36 @@
+// -----------------------------------------------------------------------------
+// Konfiguration der Meeting-KI-Firmware
+//
+// Diese Datei nach `config.h` kopieren und ausfüllen:
+//     cp src/config.h.example src/config.h
+//
+// `config.h` ist in .gitignore und wird NICHT eingecheckt (enthält WLAN-Passwort).
+// -----------------------------------------------------------------------------
+#pragma once
+
+// ---- WLAN -------------------------------------------------------------------
+#define WIFI_SSID       "DEIN_WLAN_NAME"
+#define WIFI_PASSWORD   "DEIN_WLAN_PASSWORT"
+
+// ---- Server (der Rechner, auf dem server.py läuft) --------------------------
+#define SERVER_HOST     "192.168.1.100"   // lokale IP des Servers
+#define SERVER_PORT     8888
+
+// ---- I2S-Pins zum INMP441 ---------------------------------------------------
+// Freie GPIOs deines ESP32-S3-Boards. Standardwerte unten sind für das
+// esp32-s3-devkitc-1 in Ordnung.
+#define I2S_SCK_PIN     4   // INMP441 SCK  (Bit-Clock / BCLK)
+#define I2S_WS_PIN      5   // INMP441 WS   (Word-Select / LRCLK)
+#define I2S_SD_PIN      6   // INMP441 SD   (Serial Data Out)
+
+// ---- Audio ------------------------------------------------------------------
+#define SAMPLE_RATE     16000  // 16 kHz reicht für Sprache (gut für Whisper)
+
+// Software-Verstärkung: Das INMP441 ist recht leise. Der Rohwert (32 Bit) wird
+// um MIC_SHIFT nach rechts geschoben, um auf 16 Bit zu kommen. Kleinerer Wert =
+// lauter. Bei Übersteuerung erhöhen, bei zu leisem Ton verringern (Bereich ~8..14).
+#define MIC_SHIFT       11
+
+// ---- Status-LED (optional) --------------------------------------------------
+// Onboard-RGB-LED vieler S3-Boards liegt auf GPIO 48. Auf -1 setzen, wenn keine.
+#define STATUS_LED_PIN  48
