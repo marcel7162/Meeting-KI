@@ -36,6 +36,10 @@ Zwei bis drei Sätze, worum es im Meeting ging.
 ## Offene Fragen
 - Ungeklärte Punkte (falls vorhanden).
 
+Falls das Transkript Sprecher-Kennungen wie "SPRECHER_1:" enthält, ordne
+Aussagen und Aufgaben – wo sinnvoll – den jeweiligen Sprechern zu (die echten
+Namen sind nicht bekannt).
+
 Bleibe nah am Transkript und erfinde nichts dazu. Wenn das Transkript zu kurz
 oder unverständlich ist, weise darauf hin."""
 

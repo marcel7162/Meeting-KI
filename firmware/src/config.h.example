@@ -31,6 +31,20 @@
 // lauter. Bei Übersteuerung erhöhen, bei zu leisem Ton verringern (Bereich ~8..14).
 #define MIC_SHIFT       11
 
+// ---- Knöpfe (Steuerung am ESP32) --------------------------------------------
+// Taster gegen GND schalten (aktiv low, interner Pullup wird aktiviert).
+// Ein Taster startet, der andere stoppt die Aufnahme.
+#define START_BUTTON_PIN 15   // Aufnahme starten
+#define STOP_BUTTON_PIN  16   // Aufnahme beenden
+
+// Entprellzeit der Taster in Millisekunden
+#define BUTTON_DEBOUNCE_MS 50
+
 // ---- Status-LED (optional) --------------------------------------------------
 // Onboard-RGB-LED vieler S3-Boards liegt auf GPIO 48. Auf -1 setzen, wenn keine.
+// LED-Bedeutung:
+//   schnelles Blinken = kein WLAN
+//   langsames Blinken = kein Server
+//   aus (verbunden)   = bereit, wartet auf Start-Knopf
+//   dauerhaft an       = Aufnahme läuft
 #define STATUS_LED_PIN  48

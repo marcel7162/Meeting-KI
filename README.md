@@ -27,10 +27,11 @@ kleinen Python-Server streamt, dort automatisch transkribiert und am Ende mit
 ```
 
 1. Das **INMP441** liefert digitales Audio über I2S an den **ESP32-S3**.
-2. Die **Firmware** verbindet sich mit dem WLAN und streamt fortlaufend
-   16-kHz-Mono-PCM per TCP an den Server.
-3. Der **Server** puffert den Ton. Du startest/stoppst eine Meeting-Aufnahme per
-   Tastendruck (oder Web-Button).
+2. Die **Firmware** verbindet sich mit dem WLAN. Über zwei **Knöpfe am ESP32**
+   startest/stoppst du die Aufnahme; während der Aufnahme wird
+   16-kHz-Mono-PCM per TCP an den Server gestreamt.
+3. Der **Server** puffert den Ton. Start/Stop kommen als kleine Steuer-Signale
+   vom ESP32 (ersatzweise auch per Tastatur im Server-Fenster möglich).
 4. Beim Stoppen wird das Audio als WAV gespeichert, mit **faster-whisper**
    lokal transkribiert und anschließend mit der **Anthropic-API (Claude)** zu
    einer strukturierten Zusammenfassung verarbeitet.
@@ -51,7 +52,19 @@ nicht). Nur der fertige Transkript-Text geht zur Zusammenfassung an Claude.
 | SD          | I2S Daten (DOUT)    | GPIO 6                   |
 | L/R         | Kanalwahl           | GND (= linker Kanal)     |
 
-> Die GPIO-Nummern sind in `firmware/src/config.h` frei konfigurierbar. Nimm
+### Knöpfe (Steuerung am ESP32)
+
+| Taster        | Funktion              | ESP32-S3 GPIO (Standard) |
+|---------------|-----------------------|--------------------------|
+| START-Taster  | Aufnahme starten      | GPIO 15                  |
+| STOP-Taster   | Aufnahme beenden      | GPIO 16                  |
+
+Jeder Taster wird zwischen den GPIO-Pin und **GND** geschaltet. Ein interner
+Pullup ist aktiviert – ein externer Widerstand ist nicht nötig. Ein zusätzliches
+Entprellen in Hardware ist ebenfalls nicht erforderlich (passiert in der
+Firmware).
+
+> Alle GPIO-Nummern sind in `firmware/src/config.h` frei konfigurierbar. Nimm
 > Pins, die auf deinem konkreten ESP32-S3-Board frei sind.
 
 **Wichtig:** Das INMP441 wird mit **3,3 V** betrieben, nicht mit 5 V. `L/R` auf
@@ -100,8 +113,13 @@ In `.env` trägst du ein:
 
 ### Bedienung
 
-Der Server nimmt die TCP-Verbindung des ESP32 automatisch an. Steuerung über die
-Tastatur im Server-Fenster:
+Der Server nimmt die TCP-Verbindung des ESP32 automatisch an. Gesteuert wird
+normalerweise über die **Knöpfe am ESP32**:
+
+- **START-Taster** → Aufnahme beginnt (Status-LED leuchtet dauerhaft)
+- **STOP-Taster** → Aufnahme endet → WAV + Transkript + Zusammenfassung
+
+Ersatzweise geht es auch über die Tastatur im Server-Fenster:
 
 | Taste       | Aktion                                                 |
 |-------------|--------------------------------------------------------|
@@ -113,6 +131,29 @@ Nach dem Stoppen entstehen:
 - `recordings/meeting_<zeitstempel>.wav` – der Mitschnitt
 - `summaries/meeting_<zeitstempel>.md` – Transkript **und** Zusammenfassung
 
+### Wer spricht? (optionale Sprecher-Trennung)
+
+Der Server kann das Transkript in **SPRECHER_1, SPRECHER_2, …** aufteilen
+(sog. Diarization). Das erkennt *unterschiedliche Stimmen* – **keine Namen** –
+und ist mit einem einzelnen, weiter entfernten MEMS-Mikrofon nur begrenzt
+genau (Nachhall, Abstand, gleichzeitiges Sprechen).
+
+So aktivierst du es:
+
+```bash
+pip install -r requirements-diarization.txt   # torch etc. – mehrere hundert MB
+```
+
+Dann in `.env`:
+- `ENABLE_DIARIZATION=true`
+- `HUGGINGFACE_TOKEN=...` – Token von https://huggingface.co/settings/tokens
+- Auf huggingface.co die Nutzungsbedingungen des Modells
+  **`pyannote/speaker-diarization-3.1`** akzeptieren (einmalig).
+
+Ist alles vorhanden, erscheinen im Transkript und in der Zusammenfassung die
+Sprecher-Labels. Schlägt die Trennung fehl, fällt der Server automatisch auf
+ein Transkript ohne Sprecher zurück.
+
 ---
 
 ## Erste Inbetriebnahme (Checkliste)
@@ -123,7 +164,8 @@ Nach dem Stoppen entstehen:
 3. `firmware/src/config.h` mit WLAN und dieser Server-IP befüllen und flashen.
 4. Seriellen Monitor öffnen – es sollte „WiFi verbunden" und „Server verbunden"
    erscheinen. Im Server-Fenster erscheint „ESP32 verbunden".
-5. `s` + Enter → sprechen → `e` + Enter. Zusammenfassung landet in `summaries/`.
+5. **START-Taster** drücken → sprechen → **STOP-Taster** drücken. Die
+   Zusammenfassung landet in `summaries/`.
 
 ---
 
@@ -143,13 +185,15 @@ Meeting-KI/
 ├── firmware/                 # ESP32-S3 PlatformIO-Projekt
 │   ├── platformio.ini
 │   └── src/
-│       ├── main.cpp          # I2S-Aufnahme + WLAN + TCP-Streaming
-│       └── config.h.example  # Vorlage für WLAN/Server-Konfiguration
+│       ├── main.cpp          # I2S-Aufnahme + Knöpfe + WLAN + TCP-Streaming
+│       └── config.h.example  # Vorlage für WLAN/Server/Pins-Konfiguration
 └── server/                   # Python-Server
     ├── requirements.txt
+    ├── requirements-diarization.txt  # optionale Pakete für Sprecher-Trennung
     ├── .env.example
-    ├── server.py             # TCP-Empfang + Aufnahmesteuerung
+    ├── server.py             # TCP-Empfang (Framing) + Aufnahmesteuerung
     ├── transcribe.py         # lokale Transkription (faster-whisper)
+    ├── diarize.py            # optionale Sprecher-Trennung (pyannote)
     ├── summarize.py          # Zusammenfassung via Claude
     ├── recordings/           # gespeicherte WAV-Dateien
     └── summaries/            # Transkripte + Zusammenfassungen

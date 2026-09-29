@@ -1,18 +1,24 @@
 """Meeting-KI Server.
 
-Nimmt den PCM-Audiostream des ESP32 per TCP entgegen, zeichnet auf Kommando
-eine Meeting-Session auf und erzeugt beim Stoppen WAV + Transkript +
-Zusammenfassung.
+Nimmt den Audiostream des ESP32 per TCP entgegen. Die Aufnahme wird über die
+Knöpfe am ESP32 gesteuert (START/STOP), die als kleine Steuer-Nachrichten
+ankommen. Beim Stoppen entsteht WAV + Transkript + Zusammenfassung.
 
-Bedienung (im Server-Fenster tippen):
+Protokoll (mit Framing, muss zur Firmware passen):
+    Jeder Frame:  [1 Byte Typ][4 Byte Länge, little-endian][Nutzdaten]
+      Typ 0x01 = AUDIO   -> Nutzdaten = 16-Bit-PCM (mono, little-endian)
+      Typ 0x02 = CONTROL -> Nutzdaten = 1 Byte (0x10=START, 0x11=STOP)
+
+Tastatur im Server-Fenster (optionale manuelle Steuerung / Beenden):
     s + Enter   Aufnahme starten
-    e + Enter   Aufnahme beenden -> WAV, Transkript, Zusammenfassung
+    e + Enter   Aufnahme beenden
     q + Enter   Server beenden
 """
 from __future__ import annotations
 
 import os
 import socket
+import struct
 import threading
 import wave
 from datetime import datetime
@@ -21,13 +27,22 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from summarize import summarize
-from transcribe import transcribe
+from transcribe import transcribe_segments, segments_to_text
 
 load_dotenv()
+
+# Sprecher-Trennung ist optional und standardmäßig aus.
+ENABLE_DIARIZATION = os.getenv("ENABLE_DIARIZATION", "false").lower() in ("1", "true", "yes")
 
 LISTEN_HOST = os.getenv("LISTEN_HOST", "0.0.0.0")
 LISTEN_PORT = int(os.getenv("LISTEN_PORT", "8888"))
 SAMPLE_RATE = int(os.getenv("SAMPLE_RATE", "16000"))
+
+# Protokoll-Konstanten
+MSG_AUDIO = 0x01
+MSG_CONTROL = 0x02
+CTRL_START = 0x10
+CTRL_STOP = 0x11
 
 BASE_DIR = Path(__file__).resolve().parent
 REC_DIR = BASE_DIR / "recordings"
@@ -37,14 +52,15 @@ SUM_DIR.mkdir(exist_ok=True)
 
 
 class AudioReceiver:
-    """Nimmt eine einzelne ESP32-Verbindung an und puffert Audio bei Aufnahme."""
+    """Nimmt eine ESP32-Verbindung an, parst Frames und puffert Audio."""
 
-    def __init__(self) -> None:
+    def __init__(self, on_stop) -> None:
         self._lock = threading.Lock()
         self._recording = False
         self._buffer = bytearray()
         self._client_connected = False
         self._stop = threading.Event()
+        self._on_stop = on_stop  # Callback(pcm_bytes) beim Beenden einer Aufnahme
 
     # --- Aufnahmesteuerung ---------------------------------------------------
     def start_recording(self) -> bool:
@@ -53,13 +69,17 @@ class AudioReceiver:
                 return False
             self._buffer = bytearray()
             self._recording = True
+        print("[Server] ⏺  Aufnahme läuft ...")
         return True
 
     def stop_recording(self) -> bytes:
         with self._lock:
+            if not self._recording:
+                return b""
             self._recording = False
             data = bytes(self._buffer)
             self._buffer = bytearray()
+        print(f"[Server] ⏹  Aufnahme beendet ({len(data) / (SAMPLE_RATE * 2):.1f}s)")
         return data
 
     @property
@@ -92,27 +112,63 @@ class AudioReceiver:
                 break
             print(f"[Server] ESP32 verbunden: {addr[0]}:{addr[1]}")
             self._client_connected = True
-            self._handle_client(conn)
-            self._client_connected = False
-            print("[Server] ESP32 getrennt – warte auf neue Verbindung ...")
+            try:
+                self._handle_client(conn)
+            finally:
+                self._client_connected = False
+                # Falls die Verbindung mitten in einer Aufnahme abreißt:
+                if self.is_recording:
+                    print("[Server] Verbindung getrennt während der Aufnahme – "
+                          "verarbeite bisher Empfangenes.")
+                    self._on_stop(self.stop_recording())
+            print("[Server] warte auf neue Verbindung ...")
 
         srv.close()
+
+    def _recv_exact(self, conn: socket.socket, n: int) -> bytes | None:
+        """Genau n Bytes lesen; None bei Verbindungsende."""
+        buf = bytearray()
+        while len(buf) < n and not self._stop.is_set():
+            try:
+                chunk = conn.recv(n - len(buf))
+            except socket.timeout:
+                continue
+            except OSError:
+                return None
+            if not chunk:
+                return None
+            buf.extend(chunk)
+        return bytes(buf) if len(buf) == n else None
 
     def _handle_client(self, conn: socket.socket) -> None:
         conn.settimeout(1.0)
         with conn:
             while not self._stop.is_set():
-                try:
-                    chunk = conn.recv(4096)
-                except socket.timeout:
-                    continue
-                except OSError:
+                header = self._recv_exact(conn, 5)
+                if header is None:
                     break
-                if not chunk:
+                msg_type = header[0]
+                (length,) = struct.unpack_from("<I", header, 1)
+
+                payload = self._recv_exact(conn, length) if length else b""
+                if payload is None:
                     break
-                with self._lock:
-                    if self._recording:
-                        self._buffer.extend(chunk)
+
+                if msg_type == MSG_AUDIO:
+                    with self._lock:
+                        if self._recording:
+                            self._buffer.extend(payload)
+                elif msg_type == MSG_CONTROL and payload:
+                    self._handle_control(payload[0])
+
+    def _handle_control(self, command: int) -> None:
+        if command == CTRL_START:
+            print("[Server] Knopf: START")
+            self.start_recording()
+        elif command == CTRL_STOP:
+            print("[Server] Knopf: STOP")
+            pcm = self.stop_recording()
+            self._on_stop(pcm)
 
 
 def _save_wav(pcm: bytes, path: Path) -> None:
@@ -121,6 +177,22 @@ def _save_wav(pcm: bytes, path: Path) -> None:
         wf.setsampwidth(2)  # 16 Bit
         wf.setframerate(SAMPLE_RATE)
         wf.writeframes(pcm)
+
+
+def _build_transcript(wav_path: Path) -> str:
+    """Transkript erzeugen – optional mit Sprecher-Labels."""
+    segments = transcribe_segments(str(wav_path))
+
+    if ENABLE_DIARIZATION:
+        try:
+            from diarize import diarize, label_segments
+            turns = diarize(str(wav_path))
+            return label_segments(segments, turns)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[Server] Sprecher-Trennung fehlgeschlagen ({exc}) – "
+                  "erstelle Transkript ohne Sprecher.")
+
+    return segments_to_text(segments)
 
 
 def _process_recording(pcm: bytes) -> None:
@@ -138,7 +210,7 @@ def _process_recording(pcm: bytes) -> None:
     print(f"[Server] Aufnahme gespeichert: {wav_path} ({seconds:.1f}s)")
 
     try:
-        transcript = transcribe(str(wav_path))
+        transcript = _build_transcript(wav_path)
     except Exception as exc:  # noqa: BLE001
         print(f"[Server] Transkription fehlgeschlagen: {exc}")
         return
@@ -152,7 +224,8 @@ def _process_recording(pcm: bytes) -> None:
     md = (
         f"# Meeting {stamp}\n\n"
         f"- Aufnahme: `{wav_path.name}`\n"
-        f"- Dauer: {seconds:.1f} Sekunden\n\n"
+        f"- Dauer: {seconds:.1f} Sekunden\n"
+        f"- Sprecher-Trennung: {'ja' if ENABLE_DIARIZATION else 'nein'}\n\n"
         f"{summary}\n\n"
         f"---\n\n"
         f"## Vollständiges Transkript\n\n"
@@ -162,35 +235,32 @@ def _process_recording(pcm: bytes) -> None:
     print(f"[Server] ✅ Zusammenfassung geschrieben: {md_path}")
 
 
+def _process_in_background(pcm: bytes) -> None:
+    """Verarbeitung in eigenem Thread, damit der Empfang nicht blockiert."""
+    threading.Thread(target=_process_recording, args=(pcm,), daemon=True).start()
+
+
 def main() -> None:
     if not os.getenv("ANTHROPIC_API_KEY"):
         print("[Warnung] ANTHROPIC_API_KEY ist nicht gesetzt – Zusammenfassung "
               "wird fehlschlagen. Trage ihn in .env ein.")
+    if ENABLE_DIARIZATION and not os.getenv("HUGGINGFACE_TOKEN"):
+        print("[Warnung] ENABLE_DIARIZATION=true, aber HUGGINGFACE_TOKEN fehlt – "
+              "Sprecher-Trennung wird fehlschlagen.")
 
-    receiver = AudioReceiver()
+    receiver = AudioReceiver(on_stop=_process_in_background)
     net_thread = threading.Thread(target=receiver.serve_forever, daemon=True)
     net_thread.start()
 
-    print("\nBefehle:  s = Aufnahme starten | e = beenden | q = Server beenden\n")
+    print("\nSteuerung normalerweise über die Knöpfe am ESP32.")
+    print("Tastatur:  s = starten | e = beenden | q = Server beenden\n")
     try:
         while True:
             cmd = input().strip().lower()
             if cmd == "s":
-                if not receiver.client_connected:
-                    print("[Server] Kein ESP32 verbunden – trotzdem gestartet, "
-                          "Aufnahme beginnt sobald Daten ankommen.")
-                if receiver.start_recording():
-                    print("[Server] ⏺  Aufnahme läuft ... (e + Enter zum Beenden)")
-                else:
-                    print("[Server] Aufnahme läuft bereits.")
+                receiver.start_recording()
             elif cmd == "e":
-                if not receiver.is_recording:
-                    print("[Server] Es läuft keine Aufnahme.")
-                    continue
-                print("[Server] ⏹  Aufnahme beendet – verarbeite ...")
-                pcm = receiver.stop_recording()
-                _process_recording(pcm)
-                print("\nBefehle:  s = starten | e = beenden | q = beenden\n")
+                _process_in_background(receiver.stop_recording())
             elif cmd == "q":
                 break
             elif cmd:
