@@ -1,0 +1,10 @@
+# Optionale Zusatzpakete für die lokale Zusammenfassung (SUMMARY_BACKEND=huggingface).
+# Nur installieren, wenn du ohne Claude zusammenfassen willst:
+#     pip install -r requirements-local-summary.txt
+#
+# Achtung: torch ist groß (mehrere hundert MB). Für GPU-Nutzung ggf. die passende
+# torch-Variante von https://pytorch.org/ installieren.
+transformers>=4.40
+torch>=2.0
+sentencepiece>=0.1.99     # von mT5/T5-Modellen benötigt
+protobuf>=3.20            # von manchen Tokenizern benötigt

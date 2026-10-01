@@ -154,15 +154,43 @@ python server.py
 ```
 
 In `.env` trägst du ein:
-- `ANTHROPIC_API_KEY` – dein Claude-API-Schlüssel (https://console.anthropic.com/)
-- `ENABLE_SUMMARY` – `true`/`false`. Bei `false` (oder fehlendem API-Key) wird
-  **nur lokal transkribiert**, ohne Claude.
+- `ENABLE_SUMMARY` – `true`/`false` (Zusammenfassung an/aus)
+- `SUMMARY_BACKEND` – `claude` | `huggingface` | `none` (siehe unten)
+- `ANTHROPIC_API_KEY` – Claude-Schlüssel (nur bei `SUMMARY_BACKEND=claude`)
 - `WHISPER_MODEL` – z. B. `base`, `small`, `medium` (Standard: `small`)
 - weitere Optionen siehe `.env.example`
 
-> **Nur transkribieren, ohne externe KI:** Die Transkription läuft komplett
-> lokal (faster-whisper). Setze einfach `ENABLE_SUMMARY=false` (oder lass den
-> API-Key leer) – dann entsteht nur das Transkript, kein Claude-Aufruf.
+### Zusammenfassungs-Backend wählen
+
+| `SUMMARY_BACKEND` | Was passiert | Claude nötig? | Zusätzliche Pakete |
+|-------------------|--------------|---------------|--------------------|
+| `claude`          | strukturierte Zusammenfassung (Überblick, Entscheidungen, To-dos) via Anthropic-API | ja (API-Key) | – |
+| `huggingface`     | kompakte Zusammenfassung mit lokalem Modell | **nein** | `requirements-local-summary.txt` |
+| `none`            | keine Zusammenfassung, nur Transkript | nein | – |
+
+> **Nur transkribieren:** `ENABLE_SUMMARY=false` (oder `SUMMARY_BACKEND=none`) –
+> dann entsteht nur das Transkript, kein KI-Aufruf. Die Transkription läuft
+> ohnehin komplett lokal (faster-whisper).
+
+### Komplett ohne Claude (lokal via HuggingFace)
+
+Sowohl **Sprecher-Trennung** als auch **Zusammenfassung** können rein lokal
+über HuggingFace-Modelle laufen – ganz ohne Claude/Anthropic:
+
+```bash
+pip install -r requirements-local-summary.txt   # transformers + torch (mehrere hundert MB)
+```
+
+In `.env`:
+- `SUMMARY_BACKEND=huggingface`
+- optional `HF_SUMMARY_MODEL=...` (Standard: ein deutsches mT5-Modell)
+- für Sprecher-Trennung zusätzlich `ENABLE_DIARIZATION=true` + `HUGGINGFACE_TOKEN`
+  (siehe nächster Abschnitt)
+
+> ⚠️ **Erwartung:** Das lokale Summarizer-Modell liefert eine kompakte,
+> zusammenhängende Zusammenfassung – aber nicht die sauber gegliederten
+> Abschnitte (Entscheidungen, To-dos mit Verantwortlichen) wie das Claude-Backend.
+> Für Struktur und Qualität ist `SUMMARY_BACKEND=claude` deutlich besser.
 
 ### Bedienung
 
@@ -407,8 +435,10 @@ Meeting-KI/
     ├── pipeline.py           # gemeinsame Verarbeitung: WAV -> Transkript -> MD
     ├── process_file.py       # vorhandene WAV nachträglich verarbeiten
     ├── transcribe.py         # lokale Transkription (faster-whisper)
-    ├── diarize.py            # optionale Sprecher-Trennung (pyannote)
+    ├── diarize.py            # optionale Sprecher-Trennung (pyannote/HuggingFace)
     ├── summarize.py          # Zusammenfassung via Claude
+    ├── summarize_local.py    # lokale Zusammenfassung via HuggingFace (ohne Claude)
+    ├── requirements-local-summary.txt  # optionale Pakete für lokale Zusammenfassung
     ├── recordings/           # gespeicherte WAV-Dateien
     └── summaries/            # Transkripte + Zusammenfassungen
 ```

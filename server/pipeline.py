@@ -14,7 +14,6 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from summarize import summarize
 from transcribe import transcribe_segments, segments_to_text
 
 load_dotenv()
@@ -27,9 +26,14 @@ def _env_flag(name: str, default: str = "false") -> bool:
 # Sprecher-Trennung ist optional und standardmäßig aus.
 ENABLE_DIARIZATION = _env_flag("ENABLE_DIARIZATION", "false")
 
-# Zusammenfassung via Claude. Standardmäßig an, aber ohne API-Key wird sie
-# automatisch übersprungen (reines lokales Transkript).
+# Zusammenfassung an/aus.
 ENABLE_SUMMARY = _env_flag("ENABLE_SUMMARY", "true")
+
+# Backend für die Zusammenfassung:
+#   claude       -> Anthropic-API (braucht ANTHROPIC_API_KEY)
+#   huggingface  -> lokales transformers-Modell (kein Claude, kein Internet nach Download)
+#   none         -> keine Zusammenfassung
+SUMMARY_BACKEND = os.getenv("SUMMARY_BACKEND", "claude").strip().lower()
 
 SAMPLE_RATE = int(os.getenv("SAMPLE_RATE", "16000"))
 
@@ -77,17 +81,31 @@ def build_transcript(wav_path: Path) -> str:
 
 def _make_summary(transcript: str) -> tuple[str, bool]:
     """Zusammenfassung erzeugen, wenn aktiviert UND API-Key vorhanden."""
-    if not ENABLE_SUMMARY:
-        print("[Pipeline] Zusammenfassung übersprungen (ENABLE_SUMMARY=false).")
-        return "_(Zusammenfassung deaktiviert – ENABLE_SUMMARY=false.)_", False
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        print("[Pipeline] Zusammenfassung übersprungen (kein ANTHROPIC_API_KEY).")
-        return "_(Zusammenfassung übersprungen – kein ANTHROPIC_API_KEY gesetzt.)_", False
-    try:
-        return summarize(transcript), True
-    except Exception as exc:  # noqa: BLE001
-        print(f"[Pipeline] Zusammenfassung fehlgeschlagen: {exc}")
-        return "_(Zusammenfassung fehlgeschlagen – siehe Transkript unten.)_", False
+    if not ENABLE_SUMMARY or SUMMARY_BACKEND in ("none", "off", ""):
+        print("[Pipeline] Zusammenfassung übersprungen.")
+        return "_(Zusammenfassung deaktiviert.)_", False
+
+    if SUMMARY_BACKEND in ("claude", "anthropic"):
+        if not os.getenv("ANTHROPIC_API_KEY"):
+            print("[Pipeline] Zusammenfassung übersprungen (kein ANTHROPIC_API_KEY).")
+            return "_(Zusammenfassung übersprungen – kein ANTHROPIC_API_KEY gesetzt.)_", False
+        try:
+            from summarize import summarize
+            return summarize(transcript), True
+        except Exception as exc:  # noqa: BLE001
+            print(f"[Pipeline] Claude-Zusammenfassung fehlgeschlagen: {exc}")
+            return "_(Zusammenfassung fehlgeschlagen – siehe Transkript unten.)_", False
+
+    if SUMMARY_BACKEND in ("huggingface", "hf", "local", "transformers"):
+        try:
+            from summarize_local import summarize_local
+            return summarize_local(transcript), True
+        except Exception as exc:  # noqa: BLE001
+            print(f"[Pipeline] Lokale HF-Zusammenfassung fehlgeschlagen: {exc}")
+            return "_(Lokale Zusammenfassung fehlgeschlagen – siehe Transkript unten.)_", False
+
+    print(f"[Pipeline] Unbekanntes SUMMARY_BACKEND '{SUMMARY_BACKEND}' – übersprungen.")
+    return f"_(Unbekanntes SUMMARY_BACKEND: {SUMMARY_BACKEND})_", False
 
 
 def process_wav(wav_path: str | Path) -> Path:
@@ -124,13 +142,23 @@ def process_wav(wav_path: str | Path) -> Path:
 
 
 def startup_hint() -> None:
-    """Einmalige Konsolen-Info zum Zusammenfassungs-Modus."""
-    if ENABLE_SUMMARY and not os.getenv("ANTHROPIC_API_KEY"):
-        print("[Hinweis] Kein ANTHROPIC_API_KEY gesetzt – es wird nur lokal "
-              "transkribiert (keine Claude-Zusammenfassung).")
-    elif not ENABLE_SUMMARY:
-        print("[Hinweis] ENABLE_SUMMARY=false – nur lokale Transkription, "
-              "keine Zusammenfassung.")
-    if ENABLE_DIARIZATION and not os.getenv("HUGGINGFACE_TOKEN"):
-        print("[Warnung] ENABLE_DIARIZATION=true, aber HUGGINGFACE_TOKEN fehlt – "
-              "Sprecher-Trennung wird fehlschlagen.")
+    """Einmalige Konsolen-Info zum Verarbeitungs-Modus."""
+    if not ENABLE_SUMMARY or SUMMARY_BACKEND in ("none", "off", ""):
+        print("[Hinweis] Zusammenfassung aus – nur lokale Transkription.")
+    elif SUMMARY_BACKEND in ("claude", "anthropic"):
+        if os.getenv("ANTHROPIC_API_KEY"):
+            print("[Hinweis] Zusammenfassung via Claude (Anthropic-API).")
+        else:
+            print("[Hinweis] SUMMARY_BACKEND=claude, aber kein ANTHROPIC_API_KEY – "
+                  "Zusammenfassung wird übersprungen.")
+    elif SUMMARY_BACKEND in ("huggingface", "hf", "local", "transformers"):
+        print("[Hinweis] Zusammenfassung lokal via HuggingFace (kein Claude).")
+    else:
+        print(f"[Warnung] Unbekanntes SUMMARY_BACKEND '{SUMMARY_BACKEND}'.")
+
+    if ENABLE_DIARIZATION:
+        if os.getenv("HUGGINGFACE_TOKEN"):
+            print("[Hinweis] Sprecher-Trennung aktiv (pyannote, lokal).")
+        else:
+            print("[Warnung] ENABLE_DIARIZATION=true, aber HUGGINGFACE_TOKEN fehlt – "
+                  "Sprecher-Trennung wird fehlschlagen.")
