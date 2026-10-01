@@ -161,7 +161,7 @@ def startup_hint() -> None:
                   "Zusammenfassung wird übersprungen.")
     elif SUMMARY_BACKEND in ("ollama", "local-llm"):
         print(f"[Hinweis] Zusammenfassung lokal via Ollama "
-              f"('{os.getenv('OLLAMA_MODEL', 'qwen2.5:7b-instruct')}', kein Claude).")
+              f"('{os.getenv('OLLAMA_MODEL', 'qwen2.5:14b-instruct')}', kein Claude).")
     elif SUMMARY_BACKEND in ("huggingface", "hf", "transformers"):
         print("[Hinweis] Zusammenfassung lokal via HuggingFace (kein Claude).")
     else:

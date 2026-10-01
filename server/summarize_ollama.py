@@ -7,12 +7,12 @@ Abschnitte (Überblick, Entscheidungen, To-dos ...).
 Es werden KEINE zusätzlichen Python-Pakete gebraucht – nur Ollama selbst:
 
     1. Ollama installieren:         https://ollama.com/download
-    2. Modell laden (einmalig):     ollama pull qwen2.5:7b-instruct
+    2. Modell laden (einmalig):     ollama pull qwen2.5:14b-instruct
     3. In .env:                     SUMMARY_BACKEND=ollama
-                                    OLLAMA_MODEL=qwen2.5:7b-instruct
+                                    OLLAMA_MODEL=qwen2.5:14b-instruct
 
-Längere/stärkere Modelle (brauchen mehr RAM/VRAM, dafür bessere Qualität):
-    qwen2.5:14b-instruct , llama3.1:8b , mistral-small , qwen2.5:32b-instruct
+Leichter/schneller: qwen2.5:7b-instruct, llama3.1:8b
+Stärker (mehr RAM/VRAM, langsamer): qwen2.5:32b-instruct
 """
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def _host() -> str:
 
 
 def _model() -> str:
-    return os.getenv("OLLAMA_MODEL", "qwen2.5:7b-instruct")
+    return os.getenv("OLLAMA_MODEL", "qwen2.5:14b-instruct")
 
 
 def _timeout() -> float:

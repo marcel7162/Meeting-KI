@@ -185,20 +185,19 @@ ohne Internet und ohne API-Key. Es braucht **keine** zusätzlichen Python-Pakete
 1. **Ollama installieren:** https://ollama.com/download
 2. **Modell laden** (einmalig):
    ```bash
-   ollama pull qwen2.5:7b-instruct
+   ollama pull qwen2.5:14b-instruct
    ```
 3. In `.env`:
    - `SUMMARY_BACKEND=ollama`
-   - `OLLAMA_MODEL=qwen2.5:7b-instruct`
+   - `OLLAMA_MODEL=qwen2.5:14b-instruct` (Standard)
 
 Das war's – danach wie gewohnt `python process_file.py ...` bzw. den Server nutzen.
 
-**Stärkere Modelle** (bessere Qualität, mehr RAM/VRAM, langsamer): setze
-`OLLAMA_MODEL` auf z. B. `qwen2.5:14b-instruct`, `llama3.1:8b` oder
-`qwen2.5:32b-instruct` (jeweils vorher `ollama pull`). Faustregel RAM/VRAM:
-7B ≈ 6–8 GB, 14B ≈ 10–12 GB, 32B ≈ 20 GB+. Auf CPU läuft es, dauert aber
-spürbar länger – für lange Meetings fasst das Backend automatisch
-abschnittsweise zusammen (Map-Reduce).
+**Andere Modelle:** leichter/schneller `qwen2.5:7b-instruct` oder `llama3.1:8b`;
+stärker (mehr RAM/VRAM, langsamer) `qwen2.5:32b-instruct` (jeweils vorher
+`ollama pull`). Faustregel RAM/VRAM: 7B ≈ 6–8 GB, 14B ≈ 10–12 GB, 32B ≈ 20 GB+.
+Auf CPU läuft es, dauert aber spürbar länger – für lange Meetings fasst das
+Backend automatisch abschnittsweise zusammen (Map-Reduce).
 
 ### Komplett ohne Claude (kleines Modell via HuggingFace)
 
