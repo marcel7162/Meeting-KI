@@ -26,12 +26,20 @@ WORDS_PER_CHUNK = 350
 
 
 @lru_cache(maxsize=1)
-def _load_pipeline():
-    from transformers import pipeline
+def _load_model():
+    """Modell + Tokenizer direkt laden (ohne pipeline(), versionsunabhängig)."""
+    import torch
+    from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
-    model = os.getenv("HF_SUMMARY_MODEL", DEFAULT_MODEL)
-    print(f"[HF-Summary] lade Modell '{model}' ...")
-    return pipeline("summarization", model=model, tokenizer=model)
+    model_name = os.getenv("HF_SUMMARY_MODEL", DEFAULT_MODEL)
+    print(f"[HF-Summary] lade Modell '{model_name}' ...")
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model.to(device)
+    if device == "cuda":
+        print("[HF-Summary] nutze GPU (cuda)")
+    return tokenizer, model, device
 
 
 def _chunks(words: list[str], size: int) -> list[str]:
@@ -39,9 +47,22 @@ def _chunks(words: list[str], size: int) -> list[str]:
 
 
 def _summarize_text(text: str, max_length: int, min_length: int) -> str:
-    pipe = _load_pipeline()
-    out = pipe(text, max_length=max_length, min_length=min_length, truncation=True)
-    return out[0]["summary_text"].strip()
+    import torch
+
+    tokenizer, model, device = _load_model()
+    inputs = tokenizer(
+        text, return_tensors="pt", truncation=True, max_length=512
+    ).to(device)
+    with torch.no_grad():
+        summary_ids = model.generate(
+            **inputs,
+            max_length=max_length,
+            min_length=min_length,
+            num_beams=4,
+            no_repeat_ngram_size=3,
+            length_penalty=1.0,
+        )
+    return tokenizer.decode(summary_ids[0], skip_special_tokens=True).strip()
 
 
 def summarize_local(transcript: str) -> str:
