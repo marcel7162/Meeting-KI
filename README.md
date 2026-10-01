@@ -121,6 +121,11 @@ abbrechen. Die Onboard-LED zeigt den Status (siehe Kommentare in `main.cpp`).
 
 ## Teil 2 – Server (Python)
 
+> **Python-Version beachten:** `faster-whisper` braucht `ctranslate2`, das nur
+> für **64-bit-Python 3.9–3.12** fertige Pakete hat. Mit **Python 3.13/3.14**
+> oder 32-bit-Python schlägt `pip install` fehl (siehe
+> [Problembehebung](#problembehebung)). Prüfen mit `python --version`.
+
 **Windows** (PowerShell), Python von https://www.python.org/ vorausgesetzt:
 
 ```powershell
@@ -266,6 +271,59 @@ MAC-Adresse, aus `ipconfig /all`) eine **feste IP** zuweisen. Danach bleibt
    erscheinen. Im Server-Fenster erscheint „ESP32 verbunden", die LED wird grün.
 5. **START-Taster** drücken (LED rot) → sprechen → **STOP-Taster** drücken. Die
    Zusammenfassung landet in `summaries/`.
+
+---
+
+## Problembehebung
+
+### `pip install` scheitert an `ctranslate2` / `faster-whisper`
+
+Fehlermeldung sinngemäß: *„Cannot install … faster-whisper … no matching
+distributions available for your environment: ctranslate2"* bzw.
+*„ResolutionImpossible"*.
+
+**Ursache:** `faster-whisper` nutzt `ctranslate2`, und dafür gibt es nur fertige
+Pakete für **64-bit-Python 3.9–3.12**. Mit **Python 3.13/3.14** oder einem
+32-bit-Python findet pip kein passendes Paket.
+
+**Prüfen:**
+
+```powershell
+python --version
+python -c "import platform; print(platform.architecture()[0], platform.machine())"
+```
+
+Ist die Version `3.13`/`3.14` oder steht dort `32bit`, ist das die Ursache.
+
+**Lösung (Windows): Python 3.12 (64-bit) nutzen**
+
+1. Python 3.12 (64-bit) installieren von
+   https://www.python.org/downloads/release/python-3129/
+   (Datei „Windows installer (64-bit)"). Beim Installieren **„Add python.exe to
+   PATH"** anhaken.
+2. Alte venv löschen und mit 3.12 neu anlegen. Der [Python Launcher](https://docs.python.org/3/using/windows.html#python-launcher-for-windows)
+   `py` wählt gezielt die Version:
+
+   ```powershell
+   cd server
+   rmdir /s /q .venv            # in PowerShell: Remove-Item -Recurse -Force .venv
+   py -3.12 -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   python --version             # sollte 3.12.x zeigen
+   pip install --upgrade pip
+   pip install -r requirements.txt
+   ```
+
+Danach installiert `faster-whisper` sauber durch.
+
+> macOS/Linux: analog eine 3.12 anlegen, z. B. `python3.12 -m venv .venv`
+> (ggf. vorher über den Paketmanager / pyenv installieren).
+
+### ESP32 verbindet sich nicht mit dem Server
+
+Siehe [Netzwerk: IP-Adresse & Firewall (Windows)](#netzwerk-ip-adresse--firewall-windows):
+gleiches 2,4-GHz-WLAN, richtige lokale IP in `config.h`, Firewall-Port 8888 offen,
+kein Gast-WLAN mit Client-Isolation.
 
 ---
 
