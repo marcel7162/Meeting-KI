@@ -31,8 +31,16 @@ from transcribe import transcribe_segments, segments_to_text
 
 load_dotenv()
 
+def _env_flag(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).lower() in ("1", "true", "yes")
+
+
 # Sprecher-Trennung ist optional und standardmäßig aus.
-ENABLE_DIARIZATION = os.getenv("ENABLE_DIARIZATION", "false").lower() in ("1", "true", "yes")
+ENABLE_DIARIZATION = _env_flag("ENABLE_DIARIZATION", "false")
+
+# Zusammenfassung via Claude. Standardmäßig an, aber ohne API-Key wird sie
+# automatisch übersprungen (reines lokales Transkript).
+ENABLE_SUMMARY = _env_flag("ENABLE_SUMMARY", "true")
 
 LISTEN_HOST = os.getenv("LISTEN_HOST", "0.0.0.0")
 LISTEN_PORT = int(os.getenv("LISTEN_PORT", "8888"))
@@ -215,19 +223,29 @@ def _process_recording(pcm: bytes) -> None:
         print(f"[Server] Transkription fehlgeschlagen: {exc}")
         return
 
-    try:
-        summary = summarize(transcript)
-    except Exception as exc:  # noqa: BLE001
-        print(f"[Server] Zusammenfassung fehlgeschlagen: {exc}")
-        summary = "_(Zusammenfassung fehlgeschlagen – siehe Transkript unten.)_"
+    # Zusammenfassung nur, wenn aktiviert UND ein API-Key vorhanden ist.
+    do_summary = ENABLE_SUMMARY and bool(os.getenv("ANTHROPIC_API_KEY"))
+    if not ENABLE_SUMMARY:
+        summary = "_(Zusammenfassung deaktiviert – ENABLE_SUMMARY=false.)_"
+        print("[Server] Zusammenfassung übersprungen (ENABLE_SUMMARY=false).")
+    elif not os.getenv("ANTHROPIC_API_KEY"):
+        summary = "_(Zusammenfassung übersprungen – kein ANTHROPIC_API_KEY gesetzt.)_"
+        print("[Server] Zusammenfassung übersprungen (kein ANTHROPIC_API_KEY).")
+    else:
+        try:
+            summary = summarize(transcript)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[Server] Zusammenfassung fehlgeschlagen: {exc}")
+            summary = "_(Zusammenfassung fehlgeschlagen – siehe Transkript unten.)_"
 
+    summary_block = f"{summary}\n\n---\n\n" if summary else ""
     md = (
         f"# Meeting {stamp}\n\n"
         f"- Aufnahme: `{wav_path.name}`\n"
         f"- Dauer: {seconds:.1f} Sekunden\n"
-        f"- Sprecher-Trennung: {'ja' if ENABLE_DIARIZATION else 'nein'}\n\n"
-        f"{summary}\n\n"
-        f"---\n\n"
+        f"- Sprecher-Trennung: {'ja' if ENABLE_DIARIZATION else 'nein'}\n"
+        f"- Zusammenfassung: {'ja' if do_summary else 'nein'}\n\n"
+        f"{summary_block}"
         f"## Vollständiges Transkript\n\n"
         f"{transcript or '_(kein Text erkannt)_'}\n"
     )
@@ -241,9 +259,12 @@ def _process_in_background(pcm: bytes) -> None:
 
 
 def main() -> None:
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        print("[Warnung] ANTHROPIC_API_KEY ist nicht gesetzt – Zusammenfassung "
-              "wird fehlschlagen. Trage ihn in .env ein.")
+    if ENABLE_SUMMARY and not os.getenv("ANTHROPIC_API_KEY"):
+        print("[Hinweis] Kein ANTHROPIC_API_KEY gesetzt – es wird nur lokal "
+              "transkribiert (keine Claude-Zusammenfassung).")
+    elif not ENABLE_SUMMARY:
+        print("[Hinweis] ENABLE_SUMMARY=false – nur lokale Transkription, "
+              "keine Zusammenfassung.")
     if ENABLE_DIARIZATION and not os.getenv("HUGGINGFACE_TOKEN"):
         print("[Warnung] ENABLE_DIARIZATION=true, aber HUGGINGFACE_TOKEN fehlt – "
               "Sprecher-Trennung wird fehlschlagen.")

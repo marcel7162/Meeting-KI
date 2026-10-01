@@ -155,8 +155,14 @@ python server.py
 
 In `.env` trägst du ein:
 - `ANTHROPIC_API_KEY` – dein Claude-API-Schlüssel (https://console.anthropic.com/)
+- `ENABLE_SUMMARY` – `true`/`false`. Bei `false` (oder fehlendem API-Key) wird
+  **nur lokal transkribiert**, ohne Claude.
 - `WHISPER_MODEL` – z. B. `base`, `small`, `medium` (Standard: `small`)
 - weitere Optionen siehe `.env.example`
+
+> **Nur transkribieren, ohne externe KI:** Die Transkription läuft komplett
+> lokal (faster-whisper). Setze einfach `ENABLE_SUMMARY=false` (oder lass den
+> API-Key leer) – dann entsteht nur das Transkript, kein Claude-Aufruf.
 
 ### Bedienung
 
@@ -318,6 +324,31 @@ Danach installiert `faster-whisper` sauber durch.
 
 > macOS/Linux: analog eine 3.12 anlegen, z. B. `python3.12 -m venv .venv`
 > (ggf. vorher über den Paketmanager / pyenv installieren).
+
+### Transkription: `open() got an unexpected keyword argument 'metadata_errors'`
+
+**Ursache:** faster-whisper liest die Audiodatei über **PyAV (`av`)** ein; eine
+zu alte `av`-Version kennt den Aufruf `av.open(..., metadata_errors=...)` noch
+nicht.
+
+**Lösung:** `av` aktualisieren (venv aktiv):
+
+```powershell
+pip install -U av
+```
+
+### Warnung: „huggingface_hub … symlinks … not supported"
+
+Nur eine **Warnung**, kein Fehler – das Whisper-Modell wird trotzdem geladen
+(nur etwas mehr Speicherverbrauch im Cache). Wegklicken kannst du sie, indem du
+entweder den **Entwicklermodus** von Windows aktivierst (Einstellungen → Für
+Entwickler) oder die Warnung unterdrückst:
+
+```powershell
+setx HF_HUB_DISABLE_SYMLINKS_WARNING 1
+```
+
+(neues Terminal öffnen, damit die Variable greift).
 
 ### ESP32 verbindet sich nicht mit dem Server
 
