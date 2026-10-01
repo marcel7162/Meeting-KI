@@ -184,6 +184,26 @@ Nach dem Stoppen entstehen:
 - `recordings/meeting_<zeitstempel>.wav` – der Mitschnitt
 - `summaries/meeting_<zeitstempel>.md` – Transkript **und** Zusammenfassung
 
+### Vorhandene Aufnahme nachträglich verarbeiten
+
+Du kannst eine bereits aufgenommene WAV **ohne neue Aufnahme** erneut durch die
+Pipeline schicken (z. B. nachdem die Transkription beim ersten Mal fehlschlug,
+oder um nachträglich eine Zusammenfassung zu erzeugen). Die Ergebnisse landen
+wie gewohnt in `summaries/`.
+
+```powershell
+# eine bestimmte Datei
+python process_file.py recordings/meeting_20261001_152504.wav
+
+# alle Aufnahmen, zu denen es noch kein summaries/*.md gibt
+python process_file.py --all
+```
+
+Die Einstellungen aus `.env` gelten dabei genauso (z. B. `ENABLE_SUMMARY`,
+`WHISPER_MODEL`, `ENABLE_DIARIZATION`). Der Server muss dafür **nicht** laufen.
+Es funktioniert mit jeder 16-kHz-Mono-WAV – auch mit Aufnahmen aus anderer
+Quelle.
+
 ### Wer spricht? (optionale Sprecher-Trennung)
 
 Der Server kann das Transkript in **SPRECHER_1, SPRECHER_2, …** aufteilen
@@ -381,6 +401,8 @@ Meeting-KI/
     ├── requirements-diarization.txt  # optionale Pakete für Sprecher-Trennung
     ├── .env.example
     ├── server.py             # TCP-Empfang (Framing) + Aufnahmesteuerung
+    ├── pipeline.py           # gemeinsame Verarbeitung: WAV -> Transkript -> MD
+    ├── process_file.py       # vorhandene WAV nachträglich verarbeiten
     ├── transcribe.py         # lokale Transkription (faster-whisper)
     ├── diarize.py            # optionale Sprecher-Trennung (pyannote)
     ├── summarize.py          # Zusammenfassung via Claude

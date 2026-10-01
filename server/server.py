@@ -20,43 +20,22 @@ import os
 import socket
 import struct
 import threading
-import wave
 from datetime import datetime
-from pathlib import Path
 
 from dotenv import load_dotenv
 
-from summarize import summarize
-from transcribe import transcribe_segments, segments_to_text
+from pipeline import REC_DIR, SAMPLE_RATE, process_wav, save_wav, startup_hint
 
 load_dotenv()
 
-def _env_flag(name: str, default: str = "false") -> bool:
-    return os.getenv(name, default).lower() in ("1", "true", "yes")
-
-
-# Sprecher-Trennung ist optional und standardmäßig aus.
-ENABLE_DIARIZATION = _env_flag("ENABLE_DIARIZATION", "false")
-
-# Zusammenfassung via Claude. Standardmäßig an, aber ohne API-Key wird sie
-# automatisch übersprungen (reines lokales Transkript).
-ENABLE_SUMMARY = _env_flag("ENABLE_SUMMARY", "true")
-
 LISTEN_HOST = os.getenv("LISTEN_HOST", "0.0.0.0")
 LISTEN_PORT = int(os.getenv("LISTEN_PORT", "8888"))
-SAMPLE_RATE = int(os.getenv("SAMPLE_RATE", "16000"))
 
 # Protokoll-Konstanten
 MSG_AUDIO = 0x01
 MSG_CONTROL = 0x02
 CTRL_START = 0x10
 CTRL_STOP = 0x11
-
-BASE_DIR = Path(__file__).resolve().parent
-REC_DIR = BASE_DIR / "recordings"
-SUM_DIR = BASE_DIR / "summaries"
-REC_DIR.mkdir(exist_ok=True)
-SUM_DIR.mkdir(exist_ok=True)
 
 
 class AudioReceiver:
@@ -179,78 +158,22 @@ class AudioReceiver:
             self._on_stop(pcm)
 
 
-def _save_wav(pcm: bytes, path: Path) -> None:
-    with wave.open(str(path), "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)  # 16 Bit
-        wf.setframerate(SAMPLE_RATE)
-        wf.writeframes(pcm)
-
-
-def _build_transcript(wav_path: Path) -> str:
-    """Transkript erzeugen – optional mit Sprecher-Labels."""
-    segments = transcribe_segments(str(wav_path))
-
-    if ENABLE_DIARIZATION:
-        try:
-            from diarize import diarize, label_segments
-            turns = diarize(str(wav_path))
-            return label_segments(segments, turns)
-        except Exception as exc:  # noqa: BLE001
-            print(f"[Server] Sprecher-Trennung fehlgeschlagen ({exc}) – "
-                  "erstelle Transkript ohne Sprecher.")
-
-    return segments_to_text(segments)
-
-
 def _process_recording(pcm: bytes) -> None:
-    """WAV speichern, transkribieren, zusammenfassen, Ergebnis ablegen."""
+    """Aufnahme als WAV speichern und durch die Pipeline schicken."""
     if not pcm:
         print("[Server] Aufnahme war leer – nichts zu verarbeiten.")
         return
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    seconds = len(pcm) / (SAMPLE_RATE * 2)
     wav_path = REC_DIR / f"meeting_{stamp}.wav"
-    md_path = SUM_DIR / f"meeting_{stamp}.md"
-
-    _save_wav(pcm, wav_path)
+    save_wav(pcm, wav_path)
+    seconds = len(pcm) / (SAMPLE_RATE * 2)
     print(f"[Server] Aufnahme gespeichert: {wav_path} ({seconds:.1f}s)")
 
     try:
-        transcript = _build_transcript(wav_path)
+        process_wav(wav_path)
     except Exception as exc:  # noqa: BLE001
-        print(f"[Server] Transkription fehlgeschlagen: {exc}")
-        return
-
-    # Zusammenfassung nur, wenn aktiviert UND ein API-Key vorhanden ist.
-    do_summary = ENABLE_SUMMARY and bool(os.getenv("ANTHROPIC_API_KEY"))
-    if not ENABLE_SUMMARY:
-        summary = "_(Zusammenfassung deaktiviert – ENABLE_SUMMARY=false.)_"
-        print("[Server] Zusammenfassung übersprungen (ENABLE_SUMMARY=false).")
-    elif not os.getenv("ANTHROPIC_API_KEY"):
-        summary = "_(Zusammenfassung übersprungen – kein ANTHROPIC_API_KEY gesetzt.)_"
-        print("[Server] Zusammenfassung übersprungen (kein ANTHROPIC_API_KEY).")
-    else:
-        try:
-            summary = summarize(transcript)
-        except Exception as exc:  # noqa: BLE001
-            print(f"[Server] Zusammenfassung fehlgeschlagen: {exc}")
-            summary = "_(Zusammenfassung fehlgeschlagen – siehe Transkript unten.)_"
-
-    summary_block = f"{summary}\n\n---\n\n" if summary else ""
-    md = (
-        f"# Meeting {stamp}\n\n"
-        f"- Aufnahme: `{wav_path.name}`\n"
-        f"- Dauer: {seconds:.1f} Sekunden\n"
-        f"- Sprecher-Trennung: {'ja' if ENABLE_DIARIZATION else 'nein'}\n"
-        f"- Zusammenfassung: {'ja' if do_summary else 'nein'}\n\n"
-        f"{summary_block}"
-        f"## Vollständiges Transkript\n\n"
-        f"{transcript or '_(kein Text erkannt)_'}\n"
-    )
-    md_path.write_text(md, encoding="utf-8")
-    print(f"[Server] ✅ Zusammenfassung geschrieben: {md_path}")
+        print(f"[Server] Verarbeitung fehlgeschlagen: {exc}")
 
 
 def _process_in_background(pcm: bytes) -> None:
@@ -259,15 +182,7 @@ def _process_in_background(pcm: bytes) -> None:
 
 
 def main() -> None:
-    if ENABLE_SUMMARY and not os.getenv("ANTHROPIC_API_KEY"):
-        print("[Hinweis] Kein ANTHROPIC_API_KEY gesetzt – es wird nur lokal "
-              "transkribiert (keine Claude-Zusammenfassung).")
-    elif not ENABLE_SUMMARY:
-        print("[Hinweis] ENABLE_SUMMARY=false – nur lokale Transkription, "
-              "keine Zusammenfassung.")
-    if ENABLE_DIARIZATION and not os.getenv("HUGGINGFACE_TOKEN"):
-        print("[Warnung] ENABLE_DIARIZATION=true, aber HUGGINGFACE_TOKEN fehlt – "
-              "Sprecher-Trennung wird fehlschlagen.")
+    startup_hint()
 
     receiver = AudioReceiver(on_stop=_process_in_background)
     net_thread = threading.Thread(target=receiver.serve_forever, daemon=True)
