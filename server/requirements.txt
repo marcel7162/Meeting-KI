@@ -1,5 +1,5 @@
 # Meeting-KI Server
 faster-whisper>=1.0.0     # lokale Sprache-zu-Text-Transkription
-av>=11.0                  # PyAV: Audio-Decoding für faster-whisper (metadata_errors-Support)
+numpy>=1.24               # WAV-Decoding ohne PyAV (umgeht av-Versionskonflikte)
 anthropic>=0.40.0         # Claude-API für die Zusammenfassung (optional, siehe ENABLE_SUMMARY)
 python-dotenv>=1.0.0      # .env-Konfiguration laden

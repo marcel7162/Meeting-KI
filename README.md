@@ -347,14 +347,17 @@ Danach installiert `faster-whisper` sauber durch.
 
 ### Transkription: `open() got an unexpected keyword argument 'metadata_errors'`
 
-**Ursache:** faster-whisper liest die Audiodatei über **PyAV (`av`)** ein; eine
-zu alte `av`-Version kennt den Aufruf `av.open(..., metadata_errors=...)` noch
-nicht.
+**Ursache:** faster-whisper liest Audio normalerweise über **PyAV (`av`)** ein;
+je nach `av`-Version passt der Aufruf `av.open(..., metadata_errors=...)` nicht
+zur installierten faster-whisper-Version (in beide Richtungen möglich).
 
-**Lösung:** `av` aktualisieren (venv aktiv):
+**Lösung:** Dieses Projekt liest WAV-Dateien inzwischen **ohne PyAV** direkt mit
+NumPy ein – der Fehler kann damit nicht mehr auftreten. Einfach aktuellen Stand
+holen:
 
 ```powershell
-pip install -U av
+git pull
+pip install -r requirements.txt   # stellt sicher, dass numpy vorhanden ist
 ```
 
 ### Warnung: „huggingface_hub … symlinks … not supported"
