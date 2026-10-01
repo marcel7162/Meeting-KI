@@ -96,7 +96,15 @@ def _make_summary(transcript: str) -> tuple[str, bool]:
             print(f"[Pipeline] Claude-Zusammenfassung fehlgeschlagen: {exc}")
             return "_(Zusammenfassung fehlgeschlagen – siehe Transkript unten.)_", False
 
-    if SUMMARY_BACKEND in ("huggingface", "hf", "local", "transformers"):
+    if SUMMARY_BACKEND in ("ollama", "local-llm"):
+        try:
+            from summarize_ollama import summarize_ollama
+            return summarize_ollama(transcript), True
+        except Exception as exc:  # noqa: BLE001
+            print(f"[Pipeline] Ollama-Zusammenfassung fehlgeschlagen: {exc}")
+            return f"_(Ollama-Zusammenfassung fehlgeschlagen: {exc})_", False
+
+    if SUMMARY_BACKEND in ("huggingface", "hf", "transformers"):
         try:
             from summarize_local import summarize_local
             return summarize_local(transcript), True
@@ -151,7 +159,10 @@ def startup_hint() -> None:
         else:
             print("[Hinweis] SUMMARY_BACKEND=claude, aber kein ANTHROPIC_API_KEY – "
                   "Zusammenfassung wird übersprungen.")
-    elif SUMMARY_BACKEND in ("huggingface", "hf", "local", "transformers"):
+    elif SUMMARY_BACKEND in ("ollama", "local-llm"):
+        print(f"[Hinweis] Zusammenfassung lokal via Ollama "
+              f"('{os.getenv('OLLAMA_MODEL', 'qwen2.5:7b-instruct')}', kein Claude).")
+    elif SUMMARY_BACKEND in ("huggingface", "hf", "transformers"):
         print("[Hinweis] Zusammenfassung lokal via HuggingFace (kein Claude).")
     else:
         print(f"[Warnung] Unbekanntes SUMMARY_BACKEND '{SUMMARY_BACKEND}'.")

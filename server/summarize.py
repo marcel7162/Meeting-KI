@@ -5,43 +5,7 @@ import os
 
 import anthropic
 
-SYSTEM_PROMPT = (
-    "Du bist ein Assistent, der Meeting-Mitschriften auswertet. "
-    "Du erhältst das Roh-Transkript eines Meetings (automatisch per Spracherkennung "
-    "erzeugt, daher können Namen/Wörter fehlerhaft sein). Erstelle eine klare, "
-    "sachliche Zusammenfassung auf Deutsch."
-)
-
-PROMPT_TEMPLATE = """Hier ist das Transkript eines Meetings:
-
-<transkript>
-{transcript}
-</transkript>
-
-Erstelle eine strukturierte Zusammenfassung mit folgenden Abschnitten
-(als Markdown, lasse leere Abschnitte weg):
-
-## Kurzüberblick
-Zwei bis drei Sätze, worum es im Meeting ging.
-
-## Wichtigste Punkte
-- Die zentralen besprochenen Themen und Ergebnisse als Aufzählung.
-
-## Entscheidungen
-- Getroffene Entscheidungen (falls vorhanden).
-
-## Aufgaben / To-dos
-- Konkrete nächste Schritte, wenn möglich mit verantwortlicher Person.
-
-## Offene Fragen
-- Ungeklärte Punkte (falls vorhanden).
-
-Falls das Transkript Sprecher-Kennungen wie "SPRECHER_1:" enthält, ordne
-Aussagen und Aufgaben – wo sinnvoll – den jeweiligen Sprechern zu (die echten
-Namen sind nicht bekannt).
-
-Bleibe nah am Transkript und erfinde nichts dazu. Wenn das Transkript zu kurz
-oder unverständlich ist, weise darauf hin."""
+from prompts import PROMPT_TEMPLATE, SYSTEM_PROMPT
 
 
 def summarize(transcript: str) -> str:

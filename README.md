@@ -162,35 +162,61 @@ In `.env` trägst du ein:
 
 ### Zusammenfassungs-Backend wählen
 
-| `SUMMARY_BACKEND` | Was passiert | Claude nötig? | Zusätzliche Pakete |
-|-------------------|--------------|---------------|--------------------|
-| `claude`          | strukturierte Zusammenfassung (Überblick, Entscheidungen, To-dos) via Anthropic-API | ja (API-Key) | – |
-| `huggingface`     | kompakte Zusammenfassung mit lokalem Modell | **nein** | `requirements-local-summary.txt` |
-| `none`            | keine Zusammenfassung, nur Transkript | nein | – |
+| `SUMMARY_BACKEND` | Was passiert | Claude nötig? | Qualität | Zusätzliches Setup |
+|-------------------|--------------|---------------|----------|--------------------|
+| `claude`          | strukturierte Zusammenfassung via Anthropic-API | ja (API-Key) | ★★★★ | – |
+| `ollama`          | starkes lokales LLM, **strukturiert** (Überblick, Entscheidungen, To-dos) | **nein** | ★★★☆ | Ollama + Modell |
+| `huggingface`     | kleines lokales Modell, kompakt & **unstrukturiert** | **nein** | ★★ | `requirements-local-summary.txt` |
+| `none`            | keine Zusammenfassung, nur Transkript | nein | – | – |
+
+Für **starke, strukturierte Zusammenfassungen ohne Claude** ist `ollama`
+die beste Wahl (siehe nächster Abschnitt).
 
 > **Nur transkribieren:** `ENABLE_SUMMARY=false` (oder `SUMMARY_BACKEND=none`) –
 > dann entsteht nur das Transkript, kein KI-Aufruf. Die Transkription läuft
 > ohnehin komplett lokal (faster-whisper).
 
-### Komplett ohne Claude (lokal via HuggingFace)
+### Starke lokale Zusammenfassung ohne Claude (empfohlen: Ollama)
 
-Sowohl **Sprecher-Trennung** als auch **Zusammenfassung** können rein lokal
-über HuggingFace-Modelle laufen – ganz ohne Claude/Anthropic:
+Das `ollama`-Backend nutzt ein echtes Instruct-LLM lokal und liefert dieselbe
+strukturierte Gliederung wie Claude (Überblick, Entscheidungen, To-dos …) –
+ohne Internet und ohne API-Key. Es braucht **keine** zusätzlichen Python-Pakete.
+
+1. **Ollama installieren:** https://ollama.com/download
+2. **Modell laden** (einmalig):
+   ```bash
+   ollama pull qwen2.5:7b-instruct
+   ```
+3. In `.env`:
+   - `SUMMARY_BACKEND=ollama`
+   - `OLLAMA_MODEL=qwen2.5:7b-instruct`
+
+Das war's – danach wie gewohnt `python process_file.py ...` bzw. den Server nutzen.
+
+**Stärkere Modelle** (bessere Qualität, mehr RAM/VRAM, langsamer): setze
+`OLLAMA_MODEL` auf z. B. `qwen2.5:14b-instruct`, `llama3.1:8b` oder
+`qwen2.5:32b-instruct` (jeweils vorher `ollama pull`). Faustregel RAM/VRAM:
+7B ≈ 6–8 GB, 14B ≈ 10–12 GB, 32B ≈ 20 GB+. Auf CPU läuft es, dauert aber
+spürbar länger – für lange Meetings fasst das Backend automatisch
+abschnittsweise zusammen (Map-Reduce).
+
+### Komplett ohne Claude (kleines Modell via HuggingFace)
+
+Alternativ ein kleines, schnelles Summarizer-Modell lokal (ohne Ollama):
 
 ```bash
 pip install -r requirements-local-summary.txt   # transformers + torch (mehrere hundert MB)
 ```
 
-In `.env`:
-- `SUMMARY_BACKEND=huggingface`
-- optional `HF_SUMMARY_MODEL=...` (Standard: ein deutsches mT5-Modell)
-- für Sprecher-Trennung zusätzlich `ENABLE_DIARIZATION=true` + `HUGGINGFACE_TOKEN`
-  (siehe nächster Abschnitt)
+In `.env`: `SUMMARY_BACKEND=huggingface` (optional `HF_SUMMARY_MODEL=...`).
 
-> ⚠️ **Erwartung:** Das lokale Summarizer-Modell liefert eine kompakte,
-> zusammenhängende Zusammenfassung – aber nicht die sauber gegliederten
-> Abschnitte (Entscheidungen, To-dos mit Verantwortlichen) wie das Claude-Backend.
-> Für Struktur und Qualität ist `SUMMARY_BACKEND=claude` deutlich besser.
+> ⚠️ **Erwartung:** Dieses kleine Modell liefert nur eine kompakte,
+> **unstrukturierte** Zusammenfassung – keine Abschnitte wie Entscheidungen/
+> To-dos. Für Struktur ohne Claude nimm `ollama`.
+
+Für **Sprecher-Trennung** zusätzlich `ENABLE_DIARIZATION=true` +
+`HUGGINGFACE_TOKEN` setzen (siehe nächster Abschnitt) – sie lässt sich mit
+jedem Zusammenfassungs-Backend kombinieren.
 
 ### Bedienung
 
@@ -436,9 +462,11 @@ Meeting-KI/
     ├── process_file.py       # vorhandene WAV nachträglich verarbeiten
     ├── transcribe.py         # lokale Transkription (faster-whisper)
     ├── diarize.py            # optionale Sprecher-Trennung (pyannote/HuggingFace)
+    ├── prompts.py            # gemeinsame Prompts (Claude + Ollama)
     ├── summarize.py          # Zusammenfassung via Claude
-    ├── summarize_local.py    # lokale Zusammenfassung via HuggingFace (ohne Claude)
-    ├── requirements-local-summary.txt  # optionale Pakete für lokale Zusammenfassung
+    ├── summarize_ollama.py   # starke lokale Zusammenfassung via Ollama (ohne Claude)
+    ├── summarize_local.py    # kleine lokale Zusammenfassung via HuggingFace
+    ├── requirements-local-summary.txt  # optionale Pakete für HF-Zusammenfassung
     ├── recordings/           # gespeicherte WAV-Dateien
     └── summaries/            # Transkripte + Zusammenfassungen
 ```
