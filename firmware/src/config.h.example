@@ -1,27 +1,35 @@
 // -----------------------------------------------------------------------------
-// Konfiguration der Meeting-KI-Firmware
+// Konfiguration der Meeting-KI-Firmware  –  Board: ESP32-S3 Zero (Waveshare)
 //
 // Diese Datei nach `config.h` kopieren und ausfüllen:
 //     cp src/config.h.example src/config.h
 //
 // `config.h` ist in .gitignore und wird NICHT eingecheckt (enthält WLAN-Passwort).
+//
+// Die Pin-Vorgaben passen zum ESP32-S3 Zero (alle auf der vorderen Stiftleiste,
+// GPIO1–GPIO13). Die WS2812-Onboard-LED sitzt fest auf GPIO21.
 // -----------------------------------------------------------------------------
 #pragma once
 
 // ---- WLAN -------------------------------------------------------------------
+// Hinweis: Der ESP32-S3 funkt nur im 2,4-GHz-WLAN (kein 5 GHz).
 #define WIFI_SSID       "DEIN_WLAN_NAME"
 #define WIFI_PASSWORD   "DEIN_WLAN_PASSWORT"
 
 // ---- Server (der Rechner, auf dem server.py läuft) --------------------------
-#define SERVER_HOST     "192.168.1.100"   // lokale IP des Servers
+#define SERVER_HOST     "192.168.1.100"   // lokale IP des Servers (siehe README)
 #define SERVER_PORT     8888
 
 // ---- I2S-Pins zum INMP441 ---------------------------------------------------
-// Freie GPIOs deines ESP32-S3-Boards. Standardwerte unten sind für das
-// esp32-s3-devkitc-1 in Ordnung.
 #define I2S_SCK_PIN     4   // INMP441 SCK  (Bit-Clock / BCLK)
 #define I2S_WS_PIN      5   // INMP441 WS   (Word-Select / LRCLK)
 #define I2S_SD_PIN      6   // INMP441 SD   (Serial Data Out)
+
+// L/R-Kanalwahl des INMP441, hier vom ESP32 über GPIO3 gesteuert.
+// LOW  = linker Kanal  (passt zu I2S_CHANNEL_FMT_ONLY_LEFT in main.cpp)
+// HIGH = rechter Kanal
+#define MIC_LR_PIN      3
+#define MIC_LR_LEVEL    LOW
 
 // ---- Audio ------------------------------------------------------------------
 #define SAMPLE_RATE     16000  // 16 kHz reicht für Sprache (gut für Whisper)
@@ -34,17 +42,24 @@
 // ---- Knöpfe (Steuerung am ESP32) --------------------------------------------
 // Taster gegen GND schalten (aktiv low, interner Pullup wird aktiviert).
 // Ein Taster startet, der andere stoppt die Aufnahme.
-#define START_BUTTON_PIN 15   // Aufnahme starten
-#define STOP_BUTTON_PIN  16   // Aufnahme beenden
+#define START_BUTTON_PIN 1   // Aufnahme starten
+#define STOP_BUTTON_PIN  2   // Aufnahme beenden
 
 // Entprellzeit der Taster in Millisekunden
 #define BUTTON_DEBOUNCE_MS 50
 
-// ---- Status-LED (optional) --------------------------------------------------
-// Onboard-RGB-LED vieler S3-Boards liegt auf GPIO 48. Auf -1 setzen, wenn keine.
-// LED-Bedeutung:
-//   schnelles Blinken = kein WLAN
-//   langsames Blinken = kein Server
-//   aus (verbunden)   = bereit, wartet auf Start-Knopf
-//   dauerhaft an       = Aufnahme läuft
-#define STATUS_LED_PIN  48
+// ---- Status-LED -------------------------------------------------------------
+// ESP32-S3 Zero: adressierbare WS2812-RGB-LED fest auf GPIO21.
+// STATUS_LED_IS_WS2812 = 1 -> WS2812 (Farbe), = 0 -> einfache Ein/Aus-LED.
+// STATUS_LED_PIN = -1 schaltet die Status-LED ganz aus.
+#define STATUS_LED_PIN        21
+#define STATUS_LED_IS_WS2812  1
+
+// Helligkeit der WS2812 (0..255). Die Onboard-LED ist sehr hell – niedrig halten.
+#define LED_BRIGHTNESS        40
+
+// LED-Bedeutung (bei WS2812 als Farbe):
+//   rot blinkend      = kein WLAN
+//   orange blinkend   = WLAN ok, aber kein Server
+//   grün (gedimmt)    = verbunden, wartet auf Start-Knopf
+//   rot (dauerhaft)   = Aufnahme läuft

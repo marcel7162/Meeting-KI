@@ -14,11 +14,11 @@
 //     Typ 0x01 = AUDIO   -> Nutzdaten = 16-Bit-PCM (mono, little-endian)
 //     Typ 0x02 = CONTROL -> Nutzdaten = 1 Byte Kommando (0x10=START, 0x11=STOP)
 //
-// LED-Status (falls STATUS_LED_PIN gesetzt):
-//   schnelles Blinken = kein WLAN
-//   langsames Blinken = WLAN ok, aber kein Server
-//   aus               = verbunden, wartet auf Start-Knopf
-//   dauerhaft an      = Aufnahme läuft
+// Status-LED (ESP32-S3 Zero: WS2812 auf GPIO21):
+//   rot blinkend    = kein WLAN
+//   orange blinkend = WLAN ok, aber kein Server
+//   grün            = verbunden, wartet auf Start-Knopf
+//   rot (dauerhaft) = Aufnahme läuft
 // -----------------------------------------------------------------------------
 #include <Arduino.h>
 #include <WiFi.h>
@@ -47,23 +47,34 @@ static int16_t pcm_samples[SAMPLES_PER_READ];
 static bool recording = false;
 
 // ---------------------------------------------------------------------------
-// Status-LED
+// Status-LED (WS2812-RGB oder einfache Ein/Aus-LED)
 // ---------------------------------------------------------------------------
-static void ledSet(bool on) {
+static void ledColor(uint8_t r, uint8_t g, uint8_t b) {
 #if STATUS_LED_PIN >= 0
-  digitalWrite(STATUS_LED_PIN, on ? HIGH : LOW);
+#if STATUS_LED_IS_WS2812
+  neopixelWrite(STATUS_LED_PIN, r, g, b);
 #else
-  (void)on;
+  digitalWrite(STATUS_LED_PIN, (r || g || b) ? HIGH : LOW);
+#endif
+#else
+  (void)r; (void)g; (void)b;
 #endif
 }
 
-static void ledBlink(int on_ms, int off_ms) {
+static void ledOff() { ledColor(0, 0, 0); }
+
+// Statusfarben (bei einfacher LED zählt nur an/aus)
+static void ledReady()     { ledColor(0, LED_BRIGHTNESS, 0); }                 // grün
+static void ledRecording() { ledColor(LED_BRIGHTNESS, 0, 0); }                 // rot
+
+static void ledBlinkColor(uint8_t r, uint8_t g, uint8_t b, int on_ms, int off_ms) {
 #if STATUS_LED_PIN >= 0
-  ledSet(true);
+  ledColor(r, g, b);
   delay(on_ms);
-  ledSet(false);
+  ledOff();
   delay(off_ms);
 #else
+  (void)r; (void)g; (void)b;
   delay(on_ms + off_ms);
 #endif
 }
@@ -165,7 +176,7 @@ static void connectWiFi() {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   while (WiFi.status() != WL_CONNECTED) {
-    ledBlink(80, 80);  // schnelles Blinken: kein WLAN
+    ledBlinkColor(LED_BRIGHTNESS, 0, 0, 80, 80);  // rot blinkend: kein WLAN
     Serial.print(".");
   }
   Serial.printf("\n[WiFi] verbunden, IP: %s\n", WiFi.localIP().toString().c_str());
@@ -190,7 +201,7 @@ static bool connectServer() {
 // Aufnahme lokal beenden (z. B. bei Verbindungsverlust)
 static void resetRecording() {
   recording = false;
-  ledSet(false);
+  ledOff();
 }
 
 // ---------------------------------------------------------------------------
@@ -199,12 +210,17 @@ void setup() {
   delay(300);
   Serial.println("\n=== Meeting-KI Firmware ===");
 
-#if STATUS_LED_PIN >= 0
+#if STATUS_LED_PIN >= 0 && !STATUS_LED_IS_WS2812
   pinMode(STATUS_LED_PIN, OUTPUT);
-  ledSet(false);
 #endif
+  ledOff();
+
   pinMode(START_BUTTON_PIN, INPUT_PULLUP);
   pinMode(STOP_BUTTON_PIN, INPUT_PULLUP);
+
+  // L/R-Kanalwahl des Mikrofons fest über GPIO treiben
+  pinMode(MIC_LR_PIN, OUTPUT);
+  digitalWrite(MIC_LR_PIN, MIC_LR_LEVEL);
 
   connectWiFi();
   setupI2S();
@@ -223,7 +239,8 @@ void loop() {
   }
   if (!client.connected()) {
     resetRecording();
-    ledBlink(500, 500);  // langsames Blinken: WLAN ok, aber kein Server
+    // orange blinkend: WLAN ok, aber kein Server
+    ledBlinkColor(LED_BRIGHTNESS, LED_BRIGHTNESS / 2, 0, 500, 500);
     if (!connectServer()) {
       delay(1000);
       return;
@@ -234,7 +251,7 @@ void loop() {
   if (buttonPressed(start_btn) && !recording) {
     if (sendControl(CTRL_START)) {
       recording = true;
-      ledSet(true);
+      ledRecording();  // rot: Aufnahme läuft
       Serial.println("[REC] Aufnahme gestartet");
     } else {
       client.stop();
@@ -244,12 +261,12 @@ void loop() {
   if (buttonPressed(stop_btn) && recording) {
     sendControl(CTRL_STOP);
     recording = false;
-    ledSet(false);
     Serial.println("[REC] Aufnahme beendet");
   }
 
   if (!recording) {
-    delay(10);  // im Leerlauf CPU schonen
+    ledReady();  // grün: verbunden, wartet auf Start-Knopf
+    delay(10);   // im Leerlauf CPU schonen
     return;
   }
 

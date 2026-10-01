@@ -43,39 +43,59 @@ nicht). Nur der fertige Transkript-Text geht zur Zusammenfassung an Claude.
 
 ## Hardware & Verkabelung
 
-| INMP441 Pin | Funktion            | ESP32-S3 GPIO (Standard) |
-|-------------|---------------------|--------------------------|
-| VDD         | 3,3 V               | 3V3                      |
-| GND         | Masse               | GND                      |
-| SCK         | I2S Bit-Clock (BCLK)| GPIO 4                   |
-| WS          | I2S Word-Select (LRCLK) | GPIO 5               |
-| SD          | I2S Daten (DOUT)    | GPIO 6                   |
-| L/R         | Kanalwahl           | GND (= linker Kanal)     |
+Board: **ESP32-S3 Zero** (Waveshare). Alle genutzten Signal-Pins liegen auf der
+vorderen Stiftleiste (GPIO1–GPIO13); die WS2812-Status-LED ist fest onboard.
+
+### Mikrofon (INMP441)
+
+| INMP441 Pin | Funktion                | ESP32-S3 Zero |
+|-------------|-------------------------|---------------|
+| VDD         | 3,3 V                   | 3V3           |
+| GND         | Masse                   | GND           |
+| SCK         | I2S Bit-Clock (BCLK)    | GPIO 4        |
+| WS          | I2S Word-Select (LRCLK) | GPIO 5        |
+| SD          | I2S Daten (DOUT)        | GPIO 6        |
+| L/R         | Kanalwahl               | GPIO 3        |
+
+Der **L/R-Pin wird hier vom ESP32 über GPIO3 getrieben** (nicht fest an GND).
+Die Firmware legt GPIO3 auf **LOW** = linker Kanal (passend zur I2S-Konfig). Wenn
+du lieber fest verdrahten willst, kannst du `L/R` auch direkt an GND legen – dann
+ist GPIO3 frei.
 
 ### Knöpfe (Steuerung am ESP32)
 
-| Taster        | Funktion              | ESP32-S3 GPIO (Standard) |
-|---------------|-----------------------|--------------------------|
-| START-Taster  | Aufnahme starten      | GPIO 15                  |
-| STOP-Taster   | Aufnahme beenden      | GPIO 16                  |
+| Taster        | Funktion         | ESP32-S3 Zero |
+|---------------|------------------|---------------|
+| START-Taster  | Aufnahme starten | GPIO 1        |
+| STOP-Taster   | Aufnahme beenden | GPIO 2        |
 
 Jeder Taster wird zwischen den GPIO-Pin und **GND** geschaltet. Ein interner
-Pullup ist aktiviert – ein externer Widerstand ist nicht nötig. Ein zusätzliches
-Entprellen in Hardware ist ebenfalls nicht erforderlich (passiert in der
-Firmware).
+Pullup ist aktiviert – ein externer Widerstand ist nicht nötig. Das Entprellen
+passiert in der Firmware.
 
-> Alle GPIO-Nummern sind in `firmware/src/config.h` frei konfigurierbar. Nimm
-> Pins, die auf deinem konkreten ESP32-S3-Board frei sind.
+### Status-LED (WS2812, onboard auf GPIO21)
 
-**Wichtig:** Das INMP441 wird mit **3,3 V** betrieben, nicht mit 5 V. `L/R` auf
-GND legen, damit das Modul auf dem linken Kanal sendet (so ist die Firmware
-konfiguriert).
+Die adressierbare RGB-LED des ESP32-S3 Zero zeigt den Zustand per Farbe:
+
+| Farbe              | Bedeutung                              |
+|--------------------|----------------------------------------|
+| 🔴 rot blinkend    | kein WLAN                              |
+| 🟠 orange blinkend | WLAN ok, aber kein Server              |
+| 🟢 grün            | verbunden, wartet auf den START-Knopf  |
+| 🔴 rot (dauerhaft) | Aufnahme läuft                         |
+
+> Alle GPIO-Nummern (und Helligkeit/Farblogik) sind in `firmware/src/config.h`
+> konfigurierbar. Nutzt du ein anderes Board ohne WS2812, setze
+> `STATUS_LED_IS_WS2812 0` (einfache Ein/Aus-LED) oder `STATUS_LED_PIN -1` (aus).
+
+**Wichtig:** Das INMP441 wird mit **3,3 V** betrieben, nicht mit 5 V.
 
 ---
 
-## Teil 1 – Firmware (ESP32-S3)
+## Teil 1 – Firmware (ESP32-S3 Zero)
 
-Die Firmware ist ein [PlatformIO](https://platformio.org/)-Projekt.
+Die Firmware ist ein [PlatformIO](https://platformio.org/)-Projekt (Board-Env
+`esp32-s3-zero`).
 
 ```bash
 cd firmware
@@ -84,6 +104,10 @@ cp src/config.h.example src/config.h   # dann config.h ausfüllen
 pio run --target upload
 pio device monitor        # zum Mitlesen der seriellen Ausgabe
 ```
+
+> **Flashen klappt nicht?** Der ESP32-S3 Zero lässt sich in den Download-Modus
+> zwingen: **BOOT gedrückt halten**, kurz **RESET** tippen (oder USB einstecken),
+> BOOT loslassen – dann erneut `pio run --target upload`.
 
 In `src/config.h` trägst du ein:
 - `WIFI_SSID` / `WIFI_PASSWORD` – dein WLAN
@@ -96,6 +120,24 @@ abbrechen. Die Onboard-LED zeigt den Status (siehe Kommentare in `main.cpp`).
 ---
 
 ## Teil 2 – Server (Python)
+
+**Windows** (PowerShell), Python von https://www.python.org/ vorausgesetzt:
+
+```powershell
+cd server
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+
+copy .env.example .env     # dann .env ausfüllen (ANTHROPIC_API_KEY!)
+python server.py
+```
+
+> Falls PowerShell das Aktivieren blockiert („… kann nicht geladen werden …"),
+> einmalig erlauben:
+> `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
+
+**macOS / Linux:**
 
 ```bash
 cd server
@@ -116,8 +158,8 @@ In `.env` trägst du ein:
 Der Server nimmt die TCP-Verbindung des ESP32 automatisch an. Gesteuert wird
 normalerweise über die **Knöpfe am ESP32**:
 
-- **START-Taster** → Aufnahme beginnt (Status-LED leuchtet dauerhaft)
-- **STOP-Taster** → Aufnahme endet → WAV + Transkript + Zusammenfassung
+- **START-Taster** → Aufnahme beginnt (LED wird **rot**)
+- **STOP-Taster** → Aufnahme endet (LED wieder **grün**) → WAV + Transkript + Zusammenfassung
 
 Ersatzweise geht es auch über die Tastatur im Server-Fenster:
 
@@ -156,6 +198,64 @@ ein Transkript ohne Sprecher zurück.
 
 ---
 
+## Netzwerk: IP-Adresse & Firewall (Windows)
+
+Der ESP32 muss die **lokale IP-Adresse** des Windows-Rechners kennen, auf dem
+`server.py` läuft. Beide Geräte müssen im **selben 2,4-GHz-WLAN** sein.
+
+### 1. Lokale IP herausfinden
+
+Eingabeaufforderung (`cmd`) oder PowerShell öffnen und eingeben:
+
+```powershell
+ipconfig
+```
+
+Beim WLAN-Adapter („Drahtlos-LAN-Adapter WLAN") die Zeile **IPv4-Adresse**
+suchen, z. B. `192.168.1.100`. Genau diese Adresse kommt in die Firmware:
+
+```c
+// firmware/src/config.h
+#define SERVER_HOST  "192.168.1.100"   // deine IPv4-Adresse
+#define SERVER_PORT  8888
+```
+
+> Es ist die lokale Adresse (`192.168.…` oder `10.…`) – **nicht** die
+> Internet-IP von „wieistmeineip" und **nicht** `127.0.0.1`.
+
+### 2. Firewall-Freigabe
+
+Beim ersten `python server.py` fragt Windows meist:
+„**Zugriff auf dieses Netzwerk zulassen?**" → für **private Netzwerke zulassen**.
+Dann darf der ESP32 auf Port `8888` zugreifen.
+
+Keine Abfrage erschienen oder versehentlich blockiert? Regel manuell anlegen
+(PowerShell **als Administrator**):
+
+```powershell
+New-NetFirewallRule -DisplayName "Meeting-KI" -Direction Inbound `
+  -Protocol TCP -LocalPort 8888 -Action Allow -Profile Private
+```
+
+### 3. IP bleibt nicht stabil? (feste IP)
+
+Der Router vergibt IP-Adressen per DHCP – nach einem Neustart kann der Rechner
+eine andere IP bekommen, und der ESP32 findet den Server nicht mehr. Abhilfe:
+im Router unter **DHCP / Adressreservierung** dem Rechner (anhand seiner
+MAC-Adresse, aus `ipconfig /all`) eine **feste IP** zuweisen. Danach bleibt
+`SERVER_HOST` konstant.
+
+### 4. Verbindung testen
+
+- Server starten: Es erscheint „warte auf ESP32 an `0.0.0.0:8888`".
+  (`0.0.0.0` ist Absicht – der Server lauscht auf allen Netzwerk-Schnittstellen.)
+- ESP32 einschalten: LED wird **grün**, im Server-Fenster erscheint
+  „ESP32 verbunden: 192.168.x.x".
+- Kommt keine Verbindung: gleiches WLAN? Gast-WLAN/Client-Isolation aus?
+  IP korrekt? Firewall offen?
+
+---
+
 ## Erste Inbetriebnahme (Checkliste)
 
 1. INMP441 wie oben verdrahten.
@@ -163,8 +263,8 @@ ein Transkript ohne Sprecher zurück.
    starten. Die lokale IP des Rechners notieren (`ip addr` / `ipconfig`).
 3. `firmware/src/config.h` mit WLAN und dieser Server-IP befüllen und flashen.
 4. Seriellen Monitor öffnen – es sollte „WiFi verbunden" und „Server verbunden"
-   erscheinen. Im Server-Fenster erscheint „ESP32 verbunden".
-5. **START-Taster** drücken → sprechen → **STOP-Taster** drücken. Die
+   erscheinen. Im Server-Fenster erscheint „ESP32 verbunden", die LED wird grün.
+5. **START-Taster** drücken (LED rot) → sprechen → **STOP-Taster** drücken. Die
    Zusammenfassung landet in `summaries/`.
 
 ---
