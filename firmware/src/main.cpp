@@ -111,8 +111,12 @@ struct Button {
   unsigned long last_change_ms;
 };
 
+#if USE_TOGGLE_BUTTON
+static Button toggle_btn = {TOGGLE_BUTTON_PIN, HIGH, HIGH, 0};
+#else
 static Button start_btn = {START_BUTTON_PIN, HIGH, HIGH, 0};
 static Button stop_btn  = {STOP_BUTTON_PIN, HIGH, HIGH, 0};
+#endif
 
 static bool buttonPressed(Button &b) {
   int reading = digitalRead(b.pin);
@@ -206,6 +210,23 @@ static void resetRecording() {
   ledOff();
 }
 
+// Aufnahme starten/beenden (von ein- oder zwei-Knopf-Modus genutzt)
+static void beginRecording() {
+  if (sendControl(CTRL_START)) {
+    recording = true;
+    ledRecording();  // rot: Aufnahme läuft
+    Serial.println("[REC] Aufnahme gestartet");
+  } else {
+    client.stop();  // Verbindung weg -> nächster loop() verbindet neu
+  }
+}
+
+static void endRecording() {
+  sendControl(CTRL_STOP);
+  recording = false;
+  Serial.println("[REC] Aufnahme beendet");
+}
+
 // ---------------------------------------------------------------------------
 void setup() {
   Serial.begin(115200);
@@ -217,8 +238,12 @@ void setup() {
 #endif
   ledOff();
 
+#if USE_TOGGLE_BUTTON
+  pinMode(TOGGLE_BUTTON_PIN, INPUT_PULLUP);
+#else
   pinMode(START_BUTTON_PIN, INPUT_PULLUP);
   pinMode(STOP_BUTTON_PIN, INPUT_PULLUP);
+#endif
 
   // L/R-Kanalwahl des Mikrofons fest über GPIO treiben
   pinMode(MIC_LR_PIN, OUTPUT);
@@ -228,7 +253,11 @@ void setup() {
   setupI2S();
   connectServer();
 
+#if USE_TOGGLE_BUTTON
+  Serial.println("Bereit. Knopf drücken zum Starten, erneut zum Stoppen.");
+#else
   Serial.println("Bereit. START-Knopf drücken, um die Aufnahme zu beginnen.");
+#endif
 }
 
 // ---------------------------------------------------------------------------
@@ -250,21 +279,23 @@ void loop() {
   }
 
   // Knöpfe auswerten
-  if (buttonPressed(start_btn) && !recording) {
-    if (sendControl(CTRL_START)) {
-      recording = true;
-      ledRecording();  // rot: Aufnahme läuft
-      Serial.println("[REC] Aufnahme gestartet");
+#if USE_TOGGLE_BUTTON
+  // Ein Knopf (z. B. BOOT) als Start/Stop-Umschalter
+  if (buttonPressed(toggle_btn)) {
+    if (!recording) {
+      beginRecording();
     } else {
-      client.stop();
-      return;
+      endRecording();
     }
   }
-  if (buttonPressed(stop_btn) && recording) {
-    sendControl(CTRL_STOP);
-    recording = false;
-    Serial.println("[REC] Aufnahme beendet");
+#else
+  if (buttonPressed(start_btn) && !recording) {
+    beginRecording();
   }
+  if (buttonPressed(stop_btn) && recording) {
+    endRecording();
+  }
+#endif
 
   if (!recording) {
     ledReady();  // grün: verbunden, wartet auf Start-Knopf

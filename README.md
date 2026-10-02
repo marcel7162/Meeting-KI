@@ -64,14 +64,30 @@ ist GPIO3 frei.
 
 ### Knöpfe (Steuerung am ESP32)
 
-| Taster        | Funktion         | ESP32-S3 Zero |
-|---------------|------------------|---------------|
-| START-Taster  | Aufnahme starten | GPIO 1        |
-| STOP-Taster   | Aufnahme beenden | GPIO 2        |
+Es gibt zwei Varianten (in `config.h` über `USE_TOGGLE_BUTTON` wählbar):
 
-Jeder Taster wird zwischen den GPIO-Pin und **GND** geschaltet. Ein interner
-Pullup ist aktiviert – ein externer Widerstand ist nicht nötig. Das Entprellen
-passiert in der Firmware.
+**Variante A – ein Knopf als Start/Stop-Umschalter (Standard).** Nutzt den
+**vorhandenen BOOT-Knopf** – du musst gar keinen Taster anlöten. 1× drücken
+startet, nochmal drücken stoppt.
+
+| Board               | BOOT-Knopf = `TOGGLE_BUTTON_PIN` |
+|---------------------|----------------------------------|
+| ESP32-S3 Zero       | GPIO 0                           |
+| ESP32-C3 Super Mini | GPIO 9                           |
+
+> BOOT nur **im Betrieb** drücken, **nicht** beim Einschalten/Reset (sonst
+> startet der Chip im Flash-Modus).
+
+**Variante B – zwei getrennte Taster** (`USE_TOGGLE_BUTTON 0`): je ein Taster
+für Start und Stop, zwischen GPIO und **GND** (interner Pullup aktiv, kein
+Widerstand nötig).
+
+| Taster        | Funktion         | ESP32-S3 Zero | ESP32-C3 Super Mini |
+|---------------|------------------|---------------|---------------------|
+| START-Taster  | Aufnahme starten | GPIO 1        | GPIO 10             |
+| STOP-Taster   | Aufnahme beenden | GPIO 2        | GPIO 7              |
+
+Das Entprellen passiert in beiden Varianten in der Firmware.
 
 ### Status-LED (WS2812, onboard auf GPIO21)
 
@@ -102,13 +118,14 @@ GPIO8 (active-low)** statt WS2812 (zeigt nur an/aus bzw. Blinken).
 | INMP441 WS     | GPIO 5              |
 | INMP441 SD     | GPIO 6              |
 | INMP441 L/R    | GPIO 3              |
-| START-Taster   | GPIO 10             |
-| STOP-Taster    | GPIO 7              |
+| BOOT-Knopf (Start/Stop-Toggle) | GPIO 9 |
+| START/STOP (falls zwei Taster) | GPIO 10 / GPIO 7 |
 | Status-LED     | GPIO 8 (onboard, active-low) |
 
 In `firmware/src/config.h` die C3-Werte eintragen (Vorlage steht im unteren Teil
 von `config.h.example`), insbesondere:
-`STATUS_LED_IS_WS2812 0`, `STATUS_LED_ACTIVE_LOW 1`, `STATUS_LED_PIN 8`.
+`TOGGLE_BUTTON_PIN 9`, `STATUS_LED_IS_WS2812 0`, `STATUS_LED_ACTIVE_LOW 1`,
+`STATUS_LED_PIN 8`.
 Flashen mit dem passenden Board-Env:
 
 ```bash
@@ -248,10 +265,12 @@ jedem Zusammenfassungs-Backend kombinieren.
 ### Bedienung
 
 Der Server nimmt die TCP-Verbindung des ESP32 automatisch an. Gesteuert wird
-normalerweise über die **Knöpfe am ESP32**:
+normalerweise über den **Knopf am ESP32**:
 
-- **START-Taster** → Aufnahme beginnt (LED wird **rot**)
-- **STOP-Taster** → Aufnahme endet (LED wieder **grün**) → WAV + Transkript + Zusammenfassung
+- **Standard (ein Knopf / BOOT):** 1× drücken → Aufnahme startet (LED **rot**);
+  nochmal drücken → Aufnahme endet (LED wieder **grün**) → WAV + Transkript +
+  Zusammenfassung.
+- **Zwei-Taster-Variante:** START-Taster startet, STOP-Taster beendet.
 
 Ersatzweise geht es auch über die Tastatur im Server-Fenster:
 
@@ -376,8 +395,8 @@ MAC-Adresse, aus `ipconfig /all`) eine **feste IP** zuweisen. Danach bleibt
 3. `firmware/src/config.h` mit WLAN und dieser Server-IP befüllen und flashen.
 4. Seriellen Monitor öffnen – es sollte „WiFi verbunden" und „Server verbunden"
    erscheinen. Im Server-Fenster erscheint „ESP32 verbunden", die LED wird grün.
-5. **START-Taster** drücken (LED rot) → sprechen → **STOP-Taster** drücken. Die
-   Zusammenfassung landet in `summaries/`.
+5. **Knopf** drücken (LED rot) → sprechen → **Knopf erneut** drücken (bzw.
+   STOP-Taster). Die Zusammenfassung landet in `summaries/`.
 
 ---
 

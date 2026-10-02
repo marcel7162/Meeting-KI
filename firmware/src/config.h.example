@@ -40,8 +40,15 @@
 #define MIC_SHIFT       11
 
 // ---- Knöpfe (Steuerung am ESP32) --------------------------------------------
-// Taster gegen GND schalten (aktiv low, interner Pullup wird aktiviert).
-// Ein Taster startet, der andere stoppt die Aufnahme.
+// Variante A (USE_TOGGLE_BUTTON 1): EIN Knopf als Start/Stop-Umschalter.
+//   Ideal, um den vorhandenen BOOT-Knopf zu nutzen – keine zusätzlichen Taster!
+//   BOOT-Pin je Board:  ESP32-S3 Zero = GPIO0 , ESP32-C3 Super Mini = GPIO9
+//   (BOOT nur im Betrieb drücken, NICHT beim Einschalten/Reset.)
+// Variante B (USE_TOGGLE_BUTTON 0): zwei getrennte Taster (Start + Stop).
+#define USE_TOGGLE_BUTTON 1
+#define TOGGLE_BUTTON_PIN 0   // BOOT auf ESP32-S3 Zero. C3 Super Mini: 9
+
+// Nur für Variante B (zwei Taster gegen GND, interner Pullup aktiv):
 #define START_BUTTON_PIN 1   // Aufnahme starten
 #define STOP_BUTTON_PIN  2   // Aufnahme beenden
 
@@ -76,13 +83,15 @@
 //   #define I2S_WS_PIN      5
 //   #define I2S_SD_PIN      6
 //   #define MIC_LR_PIN      3
-//   #define START_BUTTON_PIN 10
-//   #define STOP_BUTTON_PIN  7
+//   // BOOT-Knopf des C3 Super Mini als Start/Stop-Umschalter:
+//   #define USE_TOGGLE_BUTTON 1
+//   #define TOGGLE_BUTTON_PIN 9
+//   // (oder zwei eigene Taster: USE_TOGGLE_BUTTON 0 und START/STOP z. B. 10 / 7)
 //   // Onboard-LED ist eine einfache (active-low) LED auf GPIO8, kein WS2812:
 //   #define STATUS_LED_PIN        8
 //   #define STATUS_LED_IS_WS2812  0
 //   #define STATUS_LED_ACTIVE_LOW 1
 //
 // Die LED zeigt dann nur an/aus statt Farben (an = Aufnahme läuft / Verbindung
-// aktiv, blinkt bei fehlender Verbindung). Strapping-Pins 2/8/9 nicht für Taster
-// verwenden (GPIO9 ist der BOOT-Knopf).
+// aktiv, blinkt bei fehlender Verbindung). Strapping-Pins 2/8/9 nicht für zwei
+// getrennte Taster verwenden (GPIO9 ist der BOOT-Knopf – als Toggle aber ok).
