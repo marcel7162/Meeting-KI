@@ -4,12 +4,7 @@ Ein **ESP32-S3** mit **INMP441-Mikrofon**, das Meetings mithört, den Ton an ein
 kleinen Python-Server streamt, dort automatisch transkribiert und am Ende mit
 **Claude** eine Zusammenfassung schreibt.
 
-> **Hinweis zur Hardware:** In der ursprünglichen Anfrage war von einem „INA441"
-> die Rede. Der INA441 ist ein Verstärker-IC von Texas Instruments und **kein
-> Mikrofon**. Für ESP32-Projekte ist das gängige I2S-MEMS-Mikrofon das
-> **INMP441**. Dieses Projekt ist für das INMP441 ausgelegt. Wenn du wirklich ein
-> anderes Mikrofon verwendest, sag Bescheid – die Firmware muss dann angepasst
-> werden.
+
 
 ---
 
