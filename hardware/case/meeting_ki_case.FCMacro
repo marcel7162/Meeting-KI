@@ -1,0 +1,128 @@
+# -*- coding: utf-8 -*-
+# Meeting-KI Gehaeuse - parametrisches FreeCAD-Macro
+# ESP32-C3 Super Mini + INMP441 (ohne Pinleiste) + LiPo-Akku 20x27x5 mm
+#
+# Verwendung in FreeCAD:
+#   1. Macro -> Macros... -> dieses File auswaehlen -> Ausfuehren
+#      (oder im Python-Fenster:  exec(open("meeting_ki_case.FCMacro").read()) )
+#   2. Es entstehen zwei Koerper "Base" und "Lid" im 3D-Fenster.
+#   3. STLs werden zusaetzlich neben dieses Macro exportiert.
+#
+# ALLE Masse in Millimetern. Oben anpassen, falls deine Bauteile abweichen.
+
+import os
+import FreeCAD as App
+import Part
+from FreeCAD import Vector
+
+# ----------------------------------------------------------------- Parameter
+WALL   = 2.0
+FLOOR  = 1.5
+LIDTOP = 1.5
+
+IN_L = 29.0        # Innenlaenge  (X)
+IN_W = 21.0        # Innenbreite  (Y)
+IN_H = 15.0        # Innenhoehe   (Z)
+
+BATT_H = 5.0       # Akkuhoehe (liegt unten)
+
+RAIL_W   = 2.5
+RAIL_T   = 1.5
+RAIL_TOP = FLOOR + BATT_H + 1.0     # Oberkante der Platinen-Auflage
+
+USB_W = 12.0
+USB_H = 6.0
+USB_Z = RAIL_TOP + 1.8
+
+RIM_CLEAR = 0.3
+RIM_T     = 1.5
+RIM_H     = 4.0
+
+MIC_L = 15.0
+MIC_W = 13.0
+MIC_POCKET_DEPTH = 2.2
+MIC_HOLE_D = 3.0
+MIC_OFFSET_X = -IN_L / 2 + MIC_L / 2 + 1.0
+
+BTN_HOLE_D = 3.5
+BTN_OFFSET_X = IN_L / 2 - 6.0
+LED_HOLE_D = 2.2
+LED_OFFSET_X = IN_L / 2 - 11.0
+
+OUT_L = IN_L + 2 * WALL
+OUT_W = IN_W + 2 * WALL
+BASE_H = FLOOR + IN_H
+
+
+def boxC(sx, sy, sz, cx, cy, cz):
+    """Quader (Groesse sx,sy,sz) zentriert auf cx,cy,cz."""
+    return Part.makeBox(sx, sy, sz, Vector(cx - sx / 2.0, cy - sy / 2.0, cz - sz / 2.0))
+
+
+def cylZ(r, h, cx, cy, cz):
+    """Zylinder entlang Z, zentriert (Hoehe h) auf cx,cy,cz."""
+    return Part.makeCylinder(r, h, Vector(cx, cy, cz - h / 2.0))
+
+
+def build_base():
+    cx, cy = OUT_L / 2.0, OUT_W / 2.0
+    outer = boxC(OUT_L, OUT_W, BASE_H, cx, cy, BASE_H / 2.0)
+    cavity = boxC(IN_L, IN_W, IN_H + 1.0, cx, cy, FLOOR + (IN_H + 1.0) / 2.0)
+    base = outer.cut(cavity)
+
+    rail_cz = RAIL_TOP - RAIL_T / 2.0
+    rail1 = boxC(IN_L, RAIL_W, RAIL_T, cx, WALL + RAIL_W / 2.0, rail_cz)
+    rail2 = boxC(IN_L, RAIL_W, RAIL_T, cx, OUT_W - WALL - RAIL_W / 2.0, rail_cz)
+    base = base.fuse([rail1, rail2])
+
+    usb = boxC(WALL * 3, USB_W, USB_H, OUT_L - WALL, cy, USB_Z)
+    base = base.cut(usb)
+    return base.removeSplitter()
+
+
+def build_lid():
+    cx, cy = OUT_L / 2.0, OUT_W / 2.0
+    plate = boxC(OUT_L, OUT_W, LIDTOP, cx, cy, LIDTOP / 2.0)
+
+    rim_outer = boxC(IN_L - 2 * RIM_CLEAR, IN_W - 2 * RIM_CLEAR, RIM_H,
+                     cx, cy, LIDTOP + RIM_H / 2.0)
+    rim_inner = boxC(IN_L - 2 * RIM_CLEAR - 2 * RIM_T, IN_W - 2 * RIM_CLEAR - 2 * RIM_T,
+                     RIM_H + 1.0, cx, cy, LIDTOP + RIM_H / 2.0)
+    lid = plate.fuse(rim_outer.cut(rim_inner))
+
+    mic_cx = cx + MIC_OFFSET_X
+    pocket = boxC(MIC_L, MIC_W, MIC_POCKET_DEPTH, mic_cx, cy,
+                  LIDTOP + MIC_POCKET_DEPTH / 2.0)
+    lid = lid.cut(pocket)
+
+    for (d, ox) in [(MIC_HOLE_D, MIC_OFFSET_X), (BTN_HOLE_D, BTN_OFFSET_X),
+                    (LED_HOLE_D, LED_OFFSET_X)]:
+        lid = lid.cut(cylZ(d / 2.0, LIDTOP * 4, cx + ox, cy, LIDTOP / 2.0))
+    return lid.removeSplitter()
+
+
+doc = App.newDocument("MeetingKI_Case")
+base = build_base()
+lid = build_lid()
+Part.show(base, "Base")
+# Deckel zur besseren Sicht neben das Unterteil legen
+lid_obj = Part.show(lid, "Lid")
+lid_obj.Placement.Base = Vector(0, OUT_W + 10, 0)
+
+try:
+    out_dir = os.path.dirname(os.path.abspath(__file__))
+except NameError:
+    out_dir = App.getUserMacroDir(True)
+base.exportStl(os.path.join(out_dir, "base.stl"))
+lid.exportStl(os.path.join(out_dir, "lid.stl"))
+
+App.Console.PrintMessage(
+    "Gehaeuse erzeugt. Aussen: %.1f x %.1f x %.1f mm (mit Deckel %.1f).\n"
+    % (OUT_L, OUT_W, BASE_H, BASE_H + LIDTOP))
+App.Console.PrintMessage("STLs exportiert nach: %s\n" % out_dir)
+
+try:
+    App.Gui.ActiveDocument.ActiveView.fitAll()
+    App.Gui.ActiveDocument.ActiveView.viewAxometric()
+except Exception:
+    pass
