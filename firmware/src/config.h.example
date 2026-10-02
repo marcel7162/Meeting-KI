@@ -55,6 +55,21 @@
 // Entprellzeit der Taster in Millisekunden
 #define BUTTON_DEBOUNCE_MS 50
 
+// ---- Energiesparen (Deep Sleep) ---------------------------------------------
+// Nach SLEEP_TIMEOUT_MS ohne laufende Aufnahme geht der ESP in Deep Sleep und
+// wacht per Knopfdruck wieder auf (danach ~2-3 s Neustart + WLAN-Reconnect).
+// 0 = aus.
+#define ENABLE_DEEP_SLEEP 1
+#define SLEEP_TIMEOUT_MS  60000   // 60 Sekunden
+
+// Weck-Pin – MUSS aus Deep Sleep wecken können!
+//   ESP32-S3 Zero: GPIO0 (BOOT) funktioniert.
+//   ESP32-C3:      NUR GPIO0..GPIO5 können wecken – GPIO9 (BOOT) geht NICHT!
+//                  Nimm am C3 z. B. GPIO1 als Knopf (dann TOGGLE_BUTTON_PIN
+//                  ebenfalls auf 1 setzen). Der Knopf braucht einen Pullup nach
+//                  3V3 (BOOT-Knopf hat ihn onboard; eigener Taster ggf. 10k).
+#define WAKE_BUTTON_PIN   0
+
 // ---- Status-LED -------------------------------------------------------------
 // ESP32-S3 Zero: adressierbare WS2812-RGB-LED fest auf GPIO21.
 // STATUS_LED_IS_WS2812 = 1 -> WS2812 (Farbe), = 0 -> einfache Ein/Aus-LED.
@@ -83,9 +98,12 @@
 //   #define I2S_WS_PIN      5
 //   #define I2S_SD_PIN      6
 //   #define MIC_LR_PIN      3
-//   // BOOT-Knopf des C3 Super Mini als Start/Stop-Umschalter:
+//   // BOOT (GPIO9) kann NICHT aus Deep Sleep wecken. Bei ENABLE_DEEP_SLEEP 1
+//   // daher einen Knopf an GPIO0..GPIO5 verwenden (hier GPIO1) für Toggle UND Wecken:
 //   #define USE_TOGGLE_BUTTON 1
-//   #define TOGGLE_BUTTON_PIN 9
+//   #define TOGGLE_BUTTON_PIN 1
+//   #define WAKE_BUTTON_PIN   1
+//   // (ohne Deep Sleep ginge auch der BOOT-Knopf: TOGGLE_BUTTON_PIN 9)
 //   // (oder zwei eigene Taster: USE_TOGGLE_BUTTON 0 und START/STOP z. B. 10 / 7)
 //   // Onboard-LED ist eine einfache (active-low) LED auf GPIO8, kein WS2812:
 //   #define STATUS_LED_PIN        8
@@ -94,4 +112,4 @@
 //
 // Die LED zeigt dann nur an/aus statt Farben (an = Aufnahme läuft / Verbindung
 // aktiv, blinkt bei fehlender Verbindung). Strapping-Pins 2/8/9 nicht für zwei
-// getrennte Taster verwenden (GPIO9 ist der BOOT-Knopf – als Toggle aber ok).
+// getrennte Taster verwenden (GPIO9 ist der BOOT-Knopf).

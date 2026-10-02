@@ -135,6 +135,31 @@ pio run -e esp32-c3-supermini --target upload
 > Strapping-Pins 2/8/9 nicht für Taster nehmen (GPIO9 ist der BOOT-Knopf). VDD
 > des INMP441 weiterhin an **3,3 V**.
 
+### Stromsparen: Deep Sleep mit Aufwecken per Knopf
+
+Die Firmware geht nach **`SLEEP_TIMEOUT_MS`** (Standard **60 s**) ohne laufende
+Aufnahme in **Deep Sleep** und wacht per Knopfdruck wieder auf (danach ~2–3 s
+für Neustart + WLAN-Reconnect, dann „grün = bereit"). Schaltbar über
+`ENABLE_DEEP_SLEEP` in `config.h`.
+
+**Wichtig – welcher Pin kann wecken (`WAKE_BUTTON_PIN`):**
+
+| Board               | Weckbarer Knopf                                   |
+|---------------------|---------------------------------------------------|
+| ESP32-S3 Zero       | **GPIO 0 (BOOT)** – funktioniert ✅               |
+| ESP32-C3 Super Mini | **nur GPIO 0–5** – BOOT (GPIO 9) kann **nicht** wecken ❌ |
+
+Beim **C3** also einen Knopf an GPIO 0–5 verwenden (z. B. GPIO 1) und sowohl
+`TOGGLE_BUTTON_PIN 1` als auch `WAKE_BUTTON_PIN 1` setzen. Der Weck-Knopf
+braucht einen Pull-up nach 3,3 V (BOOT hat ihn onboard; ein eigener Taster ggf.
+mit 10 kΩ).
+
+> Hinweise: Im Deep Sleep ist die WLAN-Verbindung getrennt – der erste
+> Knopfdruck *weckt* nur (startet noch keine Aufnahme); danach startest du mit
+> dem nächsten Druck. Deep Sleep greift nur, solange der ESP mit WLAN **und**
+> Server verbunden im Leerlauf ist. BOOT/Weck-Knopf **nicht** beim Einschalten
+> gedrückt halten.
+
 ---
 
 ## Teil 1 – Firmware (ESP32-S3 Zero)

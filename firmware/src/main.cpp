@@ -24,6 +24,7 @@
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <driver/i2s.h>
+#include <esp_sleep.h>
 
 #include "config.h"
 
@@ -45,6 +46,7 @@ static int32_t raw_samples[SAMPLES_PER_READ];
 static int16_t pcm_samples[SAMPLES_PER_READ];
 
 static bool recording = false;
+static unsigned long last_active_ms = 0;  // für Deep-Sleep-Inaktivitätstimer
 
 // ---------------------------------------------------------------------------
 // Status-LED (WS2812-RGB oder einfache Ein/Aus-LED)
@@ -214,6 +216,7 @@ static void resetRecording() {
 static void beginRecording() {
   if (sendControl(CTRL_START)) {
     recording = true;
+    last_active_ms = millis();
     ledRecording();  // rot: Aufnahme läuft
     Serial.println("[REC] Aufnahme gestartet");
   } else {
@@ -224,8 +227,32 @@ static void beginRecording() {
 static void endRecording() {
   sendControl(CTRL_STOP);
   recording = false;
+  last_active_ms = millis();  // Inaktivitäts-Timer ab jetzt
   Serial.println("[REC] Aufnahme beendet");
 }
+
+#if ENABLE_DEEP_SLEEP
+// Nach Inaktivität in Deep Sleep; Aufwecken per WAKE_BUTTON_PIN (active low).
+static void goToDeepSleep() {
+  Serial.printf("[Sleep] %lu s inaktiv -> Deep Sleep. Wecken per Knopf (GPIO%d).\n",
+                (unsigned long)(SLEEP_TIMEOUT_MS / 1000), WAKE_BUTTON_PIN);
+  ledOff();
+  if (client.connected()) client.stop();
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+  delay(50);
+
+#if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32C6) || \
+    defined(CONFIG_IDF_TARGET_ESP32H2)
+  // RISC-V-Chips: GPIO-Deep-Sleep-Wakeup (nur GPIO0..5 beim C3!)
+  esp_deep_sleep_enable_gpio_wakeup(1ULL << WAKE_BUTTON_PIN, ESP_GPIO_WAKEUP_GPIO_LOW);
+#else
+  // ESP32 / S3: EXT0 weckt bei LOW-Pegel an einem RTC-GPIO (z. B. GPIO0/BOOT)
+  esp_sleep_enable_ext0_wakeup((gpio_num_t)WAKE_BUTTON_PIN, 0);
+#endif
+  esp_deep_sleep_start();  // kehrt nie zurück – nach dem Wecken startet setup() neu
+}
+#endif
 
 // ---------------------------------------------------------------------------
 void setup() {
@@ -258,6 +285,8 @@ void setup() {
 #else
   Serial.println("Bereit. START-Knopf drücken, um die Aufnahme zu beginnen.");
 #endif
+
+  last_active_ms = millis();
 }
 
 // ---------------------------------------------------------------------------
@@ -299,6 +328,11 @@ void loop() {
 
   if (!recording) {
     ledReady();  // grün: verbunden, wartet auf Start-Knopf
+#if ENABLE_DEEP_SLEEP
+    if ((millis() - last_active_ms) > (unsigned long)SLEEP_TIMEOUT_MS) {
+      goToDeepSleep();
+    }
+#endif
     delay(10);   // im Leerlauf CPU schonen
     return;
   }
