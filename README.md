@@ -90,6 +90,34 @@ Die adressierbare RGB-LED des ESP32-S3 Zero zeigt den Zustand per Farbe:
 
 **Wichtig:** Das INMP441 wird mit **3,3 V** betrieben, nicht mit 5 V.
 
+### Alternatives Board: ESP32-C3 Super Mini
+
+Funktioniert genauso (WLAN + 1× I2S). Die Audio-Aufgabe ist leicht – der C3
+reicht dafür. Unterschiede: andere Pins und die **einfache Onboard-LED auf
+GPIO8 (active-low)** statt WS2812 (zeigt nur an/aus bzw. Blinken).
+
+| Signal         | ESP32-C3 Super Mini |
+|----------------|---------------------|
+| INMP441 SCK    | GPIO 4              |
+| INMP441 WS     | GPIO 5              |
+| INMP441 SD     | GPIO 6              |
+| INMP441 L/R    | GPIO 3              |
+| START-Taster   | GPIO 10             |
+| STOP-Taster    | GPIO 7              |
+| Status-LED     | GPIO 8 (onboard, active-low) |
+
+In `firmware/src/config.h` die C3-Werte eintragen (Vorlage steht im unteren Teil
+von `config.h.example`), insbesondere:
+`STATUS_LED_IS_WS2812 0`, `STATUS_LED_ACTIVE_LOW 1`, `STATUS_LED_PIN 8`.
+Flashen mit dem passenden Board-Env:
+
+```bash
+pio run -e esp32-c3-supermini --target upload
+```
+
+> Strapping-Pins 2/8/9 nicht für Taster nehmen (GPIO9 ist der BOOT-Knopf). VDD
+> des INMP441 weiterhin an **3,3 V**.
+
 ---
 
 ## Teil 1 – Firmware (ESP32-S3 Zero)

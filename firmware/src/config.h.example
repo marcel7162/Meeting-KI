@@ -51,9 +51,11 @@
 // ---- Status-LED -------------------------------------------------------------
 // ESP32-S3 Zero: adressierbare WS2812-RGB-LED fest auf GPIO21.
 // STATUS_LED_IS_WS2812 = 1 -> WS2812 (Farbe), = 0 -> einfache Ein/Aus-LED.
+// STATUS_LED_ACTIVE_LOW = 1 -> LED leuchtet bei LOW (viele einfache Onboard-LEDs).
 // STATUS_LED_PIN = -1 schaltet die Status-LED ganz aus.
 #define STATUS_LED_PIN        21
 #define STATUS_LED_IS_WS2812  1
+#define STATUS_LED_ACTIVE_LOW 0
 
 // Helligkeit der WS2812 (0..255). Die Onboard-LED ist sehr hell – niedrig halten.
 #define LED_BRIGHTNESS        40
@@ -63,3 +65,24 @@
 //   orange blinkend   = WLAN ok, aber kein Server
 //   grün (gedimmt)    = verbunden, wartet auf Start-Knopf
 //   rot (dauerhaft)   = Aufnahme läuft
+
+// -----------------------------------------------------------------------------
+// ALTERNATIVE: ESP32-C3 Super Mini
+// -----------------------------------------------------------------------------
+// Funktioniert ebenfalls (WLAN + 1x I2S). Nutze das Board-Env esp32-c3-supermini
+// in platformio.ini und ersetze oben die Pin-/LED-Werte durch diese:
+//
+//   #define I2S_SCK_PIN     4
+//   #define I2S_WS_PIN      5
+//   #define I2S_SD_PIN      6
+//   #define MIC_LR_PIN      3
+//   #define START_BUTTON_PIN 10
+//   #define STOP_BUTTON_PIN  7
+//   // Onboard-LED ist eine einfache (active-low) LED auf GPIO8, kein WS2812:
+//   #define STATUS_LED_PIN        8
+//   #define STATUS_LED_IS_WS2812  0
+//   #define STATUS_LED_ACTIVE_LOW 1
+//
+// Die LED zeigt dann nur an/aus statt Farben (an = Aufnahme läuft / Verbindung
+// aktiv, blinkt bei fehlender Verbindung). Strapping-Pins 2/8/9 nicht für Taster
+// verwenden (GPIO9 ist der BOOT-Knopf).

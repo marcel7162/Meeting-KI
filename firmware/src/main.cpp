@@ -54,7 +54,9 @@ static void ledColor(uint8_t r, uint8_t g, uint8_t b) {
 #if STATUS_LED_IS_WS2812
   neopixelWrite(STATUS_LED_PIN, r, g, b);
 #else
-  digitalWrite(STATUS_LED_PIN, (r || g || b) ? HIGH : LOW);
+  // Einfache LED: an, wenn eine Farbkomponente > 0. Bei active-low invertiert.
+  bool on = (r || g || b);
+  digitalWrite(STATUS_LED_PIN, (on ^ (bool)STATUS_LED_ACTIVE_LOW) ? HIGH : LOW);
 #endif
 #else
   (void)r; (void)g; (void)b;
