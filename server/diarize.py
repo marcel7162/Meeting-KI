@@ -76,11 +76,33 @@ def _wav_to_tensor(wav_path: str):
     return {"waveform": waveform, "sample_rate": WHISPER_SAMPLE_RATE}
 
 
+def _to_annotation(result):
+    """Holt das Annotation-Objekt aus dem Pipeline-Ergebnis (API-versionsrobust).
+
+    pyannote 3.x gibt direkt eine Annotation (mit itertracks) zurück, pyannote
+    4.x einen Wrapper (z. B. DiarizeOutput) mit der Annotation als Attribut."""
+    if hasattr(result, "itertracks"):
+        return result
+    for attr in ("speaker_diarization", "diarization", "annotation"):
+        obj = getattr(result, attr, None)
+        if obj is not None and hasattr(obj, "itertracks"):
+            return obj
+    if isinstance(result, tuple):
+        for obj in result:
+            if hasattr(obj, "itertracks"):
+                return obj
+    attrs = [a for a in dir(result) if not a.startswith("_")]
+    raise AttributeError(
+        f"Diarization-Ergebnis {type(result).__name__} hat kein itertracks; "
+        f"verfügbare Attribute: {attrs}"
+    )
+
+
 def diarize(wav_path: str) -> list[SpeakerTurn]:
     """Ermittelt, wann welcher Sprecher aktiv war."""
     pipeline = _load_pipeline()
     print(f"[Diarize] analysiere Sprecher in {wav_path} ...")
-    annotation = pipeline(_wav_to_tensor(wav_path))
+    annotation = _to_annotation(pipeline(_wav_to_tensor(wav_path)))
 
     turns: list[SpeakerTurn] = []
     for segment, _, speaker in annotation.itertracks(yield_label=True):
