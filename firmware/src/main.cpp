@@ -1,30 +1,28 @@
 // -----------------------------------------------------------------------------
-// Meeting-KI – ESP32-S3 Firmware
+// Meeting-KI – ESP32 Firmware (automatischer Betrieb)
 //
-// Nimmt Audio vom INMP441 (I2S-MEMS-Mikrofon) auf und streamt es per TCP an den
-// Python-Server. Gesteuert wird die Aufnahme über zwei Knöpfe am ESP32:
-//   - START_BUTTON: Aufnahme starten
-//   - STOP_BUTTON:  Aufnahme beenden (Server transkribiert + fasst zusammen)
+// Verhalten:
+//   Strom an  -> WLAN + Server verbinden -> SOFORT Aufnahme starten und
+//                16-kHz-Mono-PCM per TCP streamen.
+//   Strom weg -> der ESP ist aus; der Server erkennt den Abbruch und beendet
+//                die Aufnahme automatisch (Transkription + Zusammenfassung).
 //
-// Es wird nur dann Audio gesendet, wenn eine Aufnahme läuft. Zusätzlich
-// schickt der ESP kleine Steuer-Nachrichten (START/STOP) an den Server.
+// Keine Knöpfe, kein Deep Sleep. Ein Tonstream = ein Meeting.
 //
 // Übertragungsprotokoll (ein TCP-Stream, mit Framing):
 //   Jeder Frame:  [1 Byte Typ][4 Byte Länge, little-endian][Nutzdaten]
 //     Typ 0x01 = AUDIO   -> Nutzdaten = 16-Bit-PCM (mono, little-endian)
 //     Typ 0x02 = CONTROL -> Nutzdaten = 1 Byte Kommando (0x10=START, 0x11=STOP)
 //
-// Status-LED (ESP32-S3 Zero: WS2812 auf GPIO21):
+// Status-LED:
 //   rot blinkend    = kein WLAN
 //   orange blinkend = WLAN ok, aber kein Server
-//   grün            = verbunden, wartet auf Start-Knopf
-//   rot (dauerhaft) = Aufnahme läuft
+//   rot (dauerhaft) = verbunden, Aufnahme läuft / streamt
 // -----------------------------------------------------------------------------
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <driver/i2s.h>
-#include <esp_sleep.h>
 
 #include "config.h"
 
@@ -45,8 +43,7 @@ static WiFiClient client;
 static int32_t raw_samples[SAMPLES_PER_READ];
 static int16_t pcm_samples[SAMPLES_PER_READ];
 
-static bool recording = false;
-static unsigned long last_active_ms = 0;  // für Deep-Sleep-Inaktivitätstimer
+static bool streaming = false;  // true = mit Server verbunden und Aufnahme läuft
 
 // ---------------------------------------------------------------------------
 // Status-LED (WS2812-RGB oder einfache Ein/Aus-LED)
@@ -56,7 +53,6 @@ static void ledColor(uint8_t r, uint8_t g, uint8_t b) {
 #if STATUS_LED_IS_WS2812
   neopixelWrite(STATUS_LED_PIN, r, g, b);
 #else
-  // Einfache LED: an, wenn eine Farbkomponente > 0. Bei active-low invertiert.
   bool on = (r || g || b);
   digitalWrite(STATUS_LED_PIN, (on ^ (bool)STATUS_LED_ACTIVE_LOW) ? HIGH : LOW);
 #endif
@@ -66,10 +62,7 @@ static void ledColor(uint8_t r, uint8_t g, uint8_t b) {
 }
 
 static void ledOff() { ledColor(0, 0, 0); }
-
-// Statusfarben (bei einfacher LED zählt nur an/aus)
-static void ledReady()     { ledColor(0, LED_BRIGHTNESS, 0); }                 // grün
-static void ledRecording() { ledColor(LED_BRIGHTNESS, 0, 0); }                 // rot
+static void ledStreaming() { ledColor(LED_BRIGHTNESS, 0, 0); }  // rot
 
 static void ledBlinkColor(uint8_t r, uint8_t g, uint8_t b, int on_ms, int off_ms) {
 #if STATUS_LED_PIN >= 0
@@ -101,40 +94,6 @@ static bool sendFrame(uint8_t type, const uint8_t *payload, uint32_t len) {
 
 static bool sendControl(uint8_t command) {
   return sendFrame(MSG_CONTROL, &command, 1);
-}
-
-// ---------------------------------------------------------------------------
-// Taster entprellen: liefert true bei einem Tastendruck (fallende Flanke)
-// ---------------------------------------------------------------------------
-struct Button {
-  int pin;
-  int last_reading;
-  int stable_state;
-  unsigned long last_change_ms;
-};
-
-#if USE_TOGGLE_BUTTON
-static Button toggle_btn = {TOGGLE_BUTTON_PIN, HIGH, HIGH, 0};
-#else
-static Button start_btn = {START_BUTTON_PIN, HIGH, HIGH, 0};
-static Button stop_btn  = {STOP_BUTTON_PIN, HIGH, HIGH, 0};
-#endif
-
-static bool buttonPressed(Button &b) {
-  int reading = digitalRead(b.pin);
-  if (reading != b.last_reading) {
-    b.last_change_ms = millis();
-    b.last_reading = reading;
-  }
-  if ((millis() - b.last_change_ms) > BUTTON_DEBOUNCE_MS) {
-    if (reading != b.stable_state) {
-      b.stable_state = reading;
-      if (b.stable_state == LOW) {  // aktiv low: gedrückt
-        return true;
-      }
-    }
-  }
-  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -191,86 +150,40 @@ static void connectWiFi() {
 }
 
 // ---------------------------------------------------------------------------
-// Server verbinden
+// Server verbinden und sofort Aufnahme starten
 // ---------------------------------------------------------------------------
-static bool connectServer() {
+static bool connectServerAndStart() {
   if (client.connected()) return true;
 
   Serial.printf("[TCP] verbinde mit %s:%d ...\n", SERVER_HOST, SERVER_PORT);
-  if (client.connect(SERVER_HOST, SERVER_PORT)) {
-    client.setNoDelay(true);
-    Serial.println("[TCP] Server verbunden");
-    return true;
+  if (!client.connect(SERVER_HOST, SERVER_PORT)) {
+    Serial.println("[TCP] Verbindung fehlgeschlagen");
+    return false;
   }
-  Serial.println("[TCP] Verbindung fehlgeschlagen");
-  return false;
-}
+  client.setNoDelay(true);
+  Serial.println("[TCP] Server verbunden");
 
-// Aufnahme lokal beenden (z. B. bei Verbindungsverlust)
-static void resetRecording() {
-  recording = false;
-  ledOff();
-}
-
-// Aufnahme starten/beenden (von ein- oder zwei-Knopf-Modus genutzt)
-static void beginRecording() {
-  if (sendControl(CTRL_START)) {
-    recording = true;
-    last_active_ms = millis();
-    ledRecording();  // rot: Aufnahme läuft
-    Serial.println("[REC] Aufnahme gestartet");
-  } else {
-    client.stop();  // Verbindung weg -> nächster loop() verbindet neu
+  if (!sendControl(CTRL_START)) {
+    Serial.println("[TCP] START konnte nicht gesendet werden");
+    client.stop();
+    return false;
   }
+  streaming = true;
+  ledStreaming();
+  Serial.println("[REC] Aufnahme gestartet (automatisch)");
+  return true;
 }
-
-static void endRecording() {
-  sendControl(CTRL_STOP);
-  recording = false;
-  last_active_ms = millis();  // Inaktivitäts-Timer ab jetzt
-  Serial.println("[REC] Aufnahme beendet");
-}
-
-#if ENABLE_DEEP_SLEEP
-// Nach Inaktivität in Deep Sleep; Aufwecken per WAKE_BUTTON_PIN (active low).
-static void goToDeepSleep() {
-  Serial.printf("[Sleep] %lu s inaktiv -> Deep Sleep. Wecken per Knopf (GPIO%d).\n",
-                (unsigned long)(SLEEP_TIMEOUT_MS / 1000), WAKE_BUTTON_PIN);
-  ledOff();
-  if (client.connected()) client.stop();
-  WiFi.disconnect(true);
-  WiFi.mode(WIFI_OFF);
-  delay(50);
-
-#if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32C6) || \
-    defined(CONFIG_IDF_TARGET_ESP32H2)
-  // RISC-V-Chips: GPIO-Deep-Sleep-Wakeup (nur GPIO0..5 beim C3!)
-  esp_deep_sleep_enable_gpio_wakeup(1ULL << WAKE_BUTTON_PIN, ESP_GPIO_WAKEUP_GPIO_LOW);
-#else
-  // ESP32 / S3: EXT0 weckt bei LOW-Pegel an einem RTC-GPIO (z. B. GPIO0/BOOT)
-  esp_sleep_enable_ext0_wakeup((gpio_num_t)WAKE_BUTTON_PIN, 0);
-#endif
-  esp_deep_sleep_start();  // kehrt nie zurück – nach dem Wecken startet setup() neu
-}
-#endif
 
 // ---------------------------------------------------------------------------
 void setup() {
   Serial.begin(115200);
   delay(300);
-  Serial.println("\n=== Meeting-KI Firmware ===");
+  Serial.println("\n=== Meeting-KI Firmware (Auto-Start) ===");
 
 #if STATUS_LED_PIN >= 0 && !STATUS_LED_IS_WS2812
   pinMode(STATUS_LED_PIN, OUTPUT);
 #endif
   ledOff();
-
-#if USE_TOGGLE_BUTTON
-  pinMode(TOGGLE_BUTTON_PIN, INPUT_PULLUP);
-#else
-  pinMode(START_BUTTON_PIN, INPUT_PULLUP);
-  pinMode(STOP_BUTTON_PIN, INPUT_PULLUP);
-#endif
 
   // L/R-Kanalwahl des Mikrofons fest über GPIO treiben
   pinMode(MIC_LR_PIN, OUTPUT);
@@ -278,63 +191,26 @@ void setup() {
 
   connectWiFi();
   setupI2S();
-  connectServer();
-
-#if USE_TOGGLE_BUTTON
-  Serial.println("Bereit. Knopf drücken zum Starten, erneut zum Stoppen.");
-#else
-  Serial.println("Bereit. START-Knopf drücken, um die Aufnahme zu beginnen.");
-#endif
-
-  last_active_ms = millis();
+  connectServerAndStart();
 }
 
 // ---------------------------------------------------------------------------
 void loop() {
-  // Verbindungen sicherstellen
+  // WLAN sicherstellen
   if (WiFi.status() != WL_CONNECTED) {
-    resetRecording();
+    streaming = false;
     connectWiFi();
     return;
   }
+
+  // Serververbindung sicherstellen (startet bei Erfolg automatisch eine Aufnahme)
   if (!client.connected()) {
-    resetRecording();
-    // orange blinkend: WLAN ok, aber kein Server
-    ledBlinkColor(LED_BRIGHTNESS, LED_BRIGHTNESS / 2, 0, 500, 500);
-    if (!connectServer()) {
+    streaming = false;
+    ledBlinkColor(LED_BRIGHTNESS, LED_BRIGHTNESS / 2, 0, 500, 500);  // orange: kein Server
+    if (!connectServerAndStart()) {
       delay(1000);
       return;
     }
-  }
-
-  // Knöpfe auswerten
-#if USE_TOGGLE_BUTTON
-  // Ein Knopf (z. B. BOOT) als Start/Stop-Umschalter
-  if (buttonPressed(toggle_btn)) {
-    if (!recording) {
-      beginRecording();
-    } else {
-      endRecording();
-    }
-  }
-#else
-  if (buttonPressed(start_btn) && !recording) {
-    beginRecording();
-  }
-  if (buttonPressed(stop_btn) && recording) {
-    endRecording();
-  }
-#endif
-
-  if (!recording) {
-    ledReady();  // grün: verbunden, wartet auf Start-Knopf
-#if ENABLE_DEEP_SLEEP
-    if ((millis() - last_active_ms) > (unsigned long)SLEEP_TIMEOUT_MS) {
-      goToDeepSleep();
-    }
-#endif
-    delay(10);   // im Leerlauf CPU schonen
-    return;
   }
 
   // Audio lesen und senden
@@ -356,6 +232,6 @@ void loop() {
   if (!sendFrame(MSG_AUDIO, (const uint8_t *)pcm_samples, n * sizeof(int16_t))) {
     Serial.println("[TCP] Sendefehler – Verbindung wird zurückgesetzt");
     client.stop();
-    resetRecording();
+    streaming = false;
   }
 }

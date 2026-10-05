@@ -21,15 +21,15 @@ kleinen Python-Server streamt, dort automatisch transkribiert und am Ende mit
                                                             └────────────────────────┘
 ```
 
-1. Das **INMP441** liefert digitales Audio über I2S an den **ESP32-S3**.
-2. Die **Firmware** verbindet sich mit dem WLAN. Über zwei **Knöpfe am ESP32**
-   startest/stoppst du die Aufnahme; während der Aufnahme wird
-   16-kHz-Mono-PCM per TCP an den Server gestreamt.
-3. Der **Server** puffert den Ton. Start/Stop kommen als kleine Steuer-Signale
-   vom ESP32 (ersatzweise auch per Tastatur im Server-Fenster möglich).
-4. Beim Stoppen wird das Audio als WAV gespeichert, mit **faster-whisper**
-   lokal transkribiert und anschließend mit der **Anthropic-API (Claude)** zu
-   einer strukturierten Zusammenfassung verarbeitet.
+1. Das **INMP441** liefert digitales Audio über I2S an den **ESP32**.
+2. Die **Firmware** verbindet sich beim Einschalten mit dem WLAN und dem Server
+   und **startet sofort** die Aufnahme; sie streamt durchgehend
+   16-kHz-Mono-PCM per TCP an den Server.
+3. Der **Server** puffert den Ton. Wird der ESP vom Strom getrennt, erkennt der
+   Server den Abbruch und **beendet die Aufnahme automatisch**.
+4. Dann wird das Audio als WAV gespeichert, mit **faster-whisper** lokal
+   transkribiert und zu einer strukturierten Zusammenfassung verarbeitet
+   (Claude oder lokal via Ollama/HuggingFace).
 
 Transkription läuft **lokal** (Datenschutz – der Rohton verlässt dein Netz
 nicht). Nur der fertige Transkript-Text geht zur Zusammenfassung an Claude.
@@ -57,43 +57,23 @@ Die Firmware legt GPIO3 auf **LOW** = linker Kanal (passend zur I2S-Konfig). Wen
 du lieber fest verdrahten willst, kannst du `L/R` auch direkt an GND legen – dann
 ist GPIO3 frei.
 
-### Knöpfe (Steuerung am ESP32)
+### Bedienung: nur über Strom (keine Knöpfe)
 
-Es gibt zwei Varianten (in `config.h` über `USE_TOGGLE_BUTTON` wählbar):
+- **Strom an** → der ESP verbindet sich mit WLAN und Server und **startet sofort
+  die Aufnahme**, streamt dann durchgehend.
+- **Strom weg** (Akku/USB trennen) → der Server erkennt den Abbruch und
+  **beendet + wertet die Aufnahme automatisch aus** (WAV + Transkript +
+  Zusammenfassung).
 
-**Variante A – ein Knopf als Start/Stop-Umschalter (Standard).** Nutzt den
-**vorhandenen BOOT-Knopf** – du musst gar keinen Taster anlöten. 1× drücken
-startet, nochmal drücken stoppt.
-
-| Board               | BOOT-Knopf = `TOGGLE_BUTTON_PIN` |
-|---------------------|----------------------------------|
-| ESP32-S3 Zero       | GPIO 0                           |
-| ESP32-C3 Super Mini | GPIO 9                           |
-
-> BOOT nur **im Betrieb** drücken, **nicht** beim Einschalten/Reset (sonst
-> startet der Chip im Flash-Modus).
-
-**Variante B – zwei getrennte Taster** (`USE_TOGGLE_BUTTON 0`): je ein Taster
-für Start und Stop, zwischen GPIO und **GND** (interner Pullup aktiv, kein
-Widerstand nötig).
-
-| Taster        | Funktion         | ESP32-S3 Zero | ESP32-C3 Super Mini |
-|---------------|------------------|---------------|---------------------|
-| START-Taster  | Aufnahme starten | GPIO 1        | GPIO 10             |
-| STOP-Taster   | Aufnahme beenden | GPIO 2        | GPIO 7              |
-
-Das Entprellen passiert in beiden Varianten in der Firmware.
+Es gibt keine Taster. Ein „Einschalten bis Ausschalten" = ein Meeting.
 
 ### Status-LED (WS2812, onboard auf GPIO21)
-
-Die adressierbare RGB-LED des ESP32-S3 Zero zeigt den Zustand per Farbe:
 
 | Farbe              | Bedeutung                              |
 |--------------------|----------------------------------------|
 | 🔴 rot blinkend    | kein WLAN                              |
 | 🟠 orange blinkend | WLAN ok, aber kein Server              |
-| 🟢 grün            | verbunden, wartet auf den START-Knopf  |
-| 🔴 rot (dauerhaft) | Aufnahme läuft                         |
+| 🔴 rot (dauerhaft) | verbunden, Aufnahme läuft / streamt    |
 
 > Alle GPIO-Nummern (und Helligkeit/Farblogik) sind in `firmware/src/config.h`
 > konfigurierbar. Nutzt du ein anderes Board ohne WS2812, setze
@@ -103,9 +83,8 @@ Die adressierbare RGB-LED des ESP32-S3 Zero zeigt den Zustand per Farbe:
 
 ### Alternatives Board: ESP32-C3 Super Mini
 
-Funktioniert genauso (WLAN + 1× I2S). Die Audio-Aufgabe ist leicht – der C3
-reicht dafür. Unterschiede: andere Pins und die **einfache Onboard-LED auf
-GPIO8 (active-low)** statt WS2812 (zeigt nur an/aus bzw. Blinken).
+Funktioniert genauso (WLAN + 1× I2S). Unterschiede: andere Pins und die
+**einfache Onboard-LED auf GPIO8 (active-low)** statt WS2812.
 
 | Signal         | ESP32-C3 Super Mini |
 |----------------|---------------------|
@@ -113,47 +92,18 @@ GPIO8 (active-low)** statt WS2812 (zeigt nur an/aus bzw. Blinken).
 | INMP441 WS     | GPIO 5              |
 | INMP441 SD     | GPIO 6              |
 | INMP441 L/R    | GPIO 3              |
-| BOOT-Knopf (Start/Stop-Toggle) | GPIO 9 |
-| START/STOP (falls zwei Taster) | GPIO 10 / GPIO 7 |
 | Status-LED     | GPIO 8 (onboard, active-low) |
 
 In `firmware/src/config.h` die C3-Werte eintragen (Vorlage steht im unteren Teil
 von `config.h.example`), insbesondere:
-`TOGGLE_BUTTON_PIN 9`, `STATUS_LED_IS_WS2812 0`, `STATUS_LED_ACTIVE_LOW 1`,
-`STATUS_LED_PIN 8`.
+`STATUS_LED_IS_WS2812 0`, `STATUS_LED_ACTIVE_LOW 1`, `STATUS_LED_PIN 8`.
 Flashen mit dem passenden Board-Env:
 
 ```bash
 pio run -e esp32-c3-supermini --target upload
 ```
 
-> Strapping-Pins 2/8/9 nicht für Taster nehmen (GPIO9 ist der BOOT-Knopf). VDD
-> des INMP441 weiterhin an **3,3 V**.
-
-### Stromsparen: Deep Sleep mit Aufwecken per Knopf
-
-Die Firmware geht nach **`SLEEP_TIMEOUT_MS`** (Standard **60 s**) ohne laufende
-Aufnahme in **Deep Sleep** und wacht per Knopfdruck wieder auf (danach ~2–3 s
-für Neustart + WLAN-Reconnect, dann „grün = bereit"). Schaltbar über
-`ENABLE_DEEP_SLEEP` in `config.h`.
-
-**Wichtig – welcher Pin kann wecken (`WAKE_BUTTON_PIN`):**
-
-| Board               | Weckbarer Knopf                                   |
-|---------------------|---------------------------------------------------|
-| ESP32-S3 Zero       | **GPIO 0 (BOOT)** – funktioniert ✅               |
-| ESP32-C3 Super Mini | **nur GPIO 0–5** – BOOT (GPIO 9) kann **nicht** wecken ❌ |
-
-Beim **C3** also einen Knopf an GPIO 0–5 verwenden (z. B. GPIO 1) und sowohl
-`TOGGLE_BUTTON_PIN 1` als auch `WAKE_BUTTON_PIN 1` setzen. Der Weck-Knopf
-braucht einen Pull-up nach 3,3 V (BOOT hat ihn onboard; ein eigener Taster ggf.
-mit 10 kΩ).
-
-> Hinweise: Im Deep Sleep ist die WLAN-Verbindung getrennt – der erste
-> Knopfdruck *weckt* nur (startet noch keine Aufnahme); danach startest du mit
-> dem nächsten Druck. Deep Sleep greift nur, solange der ESP mit WLAN **und**
-> Server verbunden im Leerlauf ist. BOOT/Weck-Knopf **nicht** beim Einschalten
-> gedrückt halten.
+> VDD des INMP441 weiterhin an **3,3 V**.
 
 ---
 
@@ -285,12 +235,12 @@ jedem Zusammenfassungs-Backend kombinieren.
 ### Bedienung
 
 Der Server nimmt die TCP-Verbindung des ESP32 automatisch an. Gesteuert wird
-normalerweise über den **Knopf am ESP32**:
+**über den Strom**:
 
-- **Standard (ein Knopf / BOOT):** 1× drücken → Aufnahme startet (LED **rot**);
-  nochmal drücken → Aufnahme endet (LED wieder **grün**) → WAV + Transkript +
-  Zusammenfassung.
-- **Zwei-Taster-Variante:** START-Taster startet, STOP-Taster beendet.
+- **ESP einschalten** → verbindet sich und nimmt sofort auf (LED **rot**).
+- **ESP vom Strom trennen** → der Server erkennt den Abbruch (sauberes
+  TCP-Ende oder Watchdog nach ein paar Sekunden ohne Audio) und erzeugt
+  automatisch WAV + Transkript + Zusammenfassung.
 
 Ersatzweise geht es auch über die Tastatur im Server-Fenster:
 
@@ -413,10 +363,10 @@ MAC-Adresse, aus `ipconfig /all`) eine **feste IP** zuweisen. Danach bleibt
 2. `server/.env` mit deinem `ANTHROPIC_API_KEY` befüllen und `python server.py`
    starten. Die lokale IP des Rechners notieren (`ip addr` / `ipconfig`).
 3. `firmware/src/config.h` mit WLAN und dieser Server-IP befüllen und flashen.
-4. Seriellen Monitor öffnen – es sollte „WiFi verbunden" und „Server verbunden"
-   erscheinen. Im Server-Fenster erscheint „ESP32 verbunden", die LED wird grün.
-5. **Knopf** drücken (LED rot) → sprechen → **Knopf erneut** drücken (bzw.
-   STOP-Taster). Die Zusammenfassung landet in `summaries/`.
+4. ESP mit Strom versorgen. Im Server-Fenster erscheint „ESP32 verbunden" und
+   „ESP: START (automatisch)"; die LED wird rot = Aufnahme läuft.
+5. Meeting sprechen → danach den **ESP vom Strom trennen**. Der Server beendet
+   automatisch und schreibt die Zusammenfassung nach `summaries/`.
 
 ---
 
@@ -517,7 +467,7 @@ Meeting-KI/
 ├── firmware/                 # ESP32-S3 PlatformIO-Projekt
 │   ├── platformio.ini
 │   └── src/
-│       ├── main.cpp          # I2S-Aufnahme + Knöpfe + WLAN + TCP-Streaming
+│       ├── main.cpp          # I2S-Aufnahme + WLAN + TCP-Streaming (Auto-Start)
 │       └── config.h.example  # Vorlage für WLAN/Server/Pins-Konfiguration
 └── server/                   # Python-Server
     ├── requirements.txt

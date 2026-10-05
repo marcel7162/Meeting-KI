@@ -1,8 +1,13 @@
 """Meeting-KI Server.
 
-Nimmt den Audiostream des ESP32 per TCP entgegen. Die Aufnahme wird über die
-Knöpfe am ESP32 gesteuert (START/STOP), die als kleine Steuer-Nachrichten
-ankommen. Beim Stoppen entsteht WAV + Transkript + Zusammenfassung.
+Nimmt den Audiostream des ESP32 per TCP entgegen. Der ESP startet die Aufnahme
+automatisch, sobald er Strom bekommt und sich verbindet (CTRL_START). Wird der
+ESP vom Strom getrennt, erkennt der Server den Abbruch und beendet + wertet die
+Aufnahme automatisch aus (WAV + Transkript + Zusammenfassung).
+
+Da ein Stromverlust oft kein sauberes TCP-Ende sendet, erkennt der Server das
+Ende zusätzlich über einen Watchdog: kommt für RX_IDLE_TIMEOUT Sekunden kein
+Audio mehr, gilt die Verbindung als getrennt.
 
 Protokoll (mit Framing, muss zur Firmware passen):
     Jeder Frame:  [1 Byte Typ][4 Byte Länge, little-endian][Nutzdaten]
@@ -20,6 +25,7 @@ import os
 import socket
 import struct
 import threading
+import time
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -30,6 +36,10 @@ load_dotenv()
 
 LISTEN_HOST = os.getenv("LISTEN_HOST", "0.0.0.0")
 LISTEN_PORT = int(os.getenv("LISTEN_PORT", "8888"))
+
+# Nach so vielen Sekunden ohne empfangene Daten gilt der ESP als getrennt
+# (z. B. Stromverlust ohne sauberes TCP-Ende) -> Aufnahme beenden + auswerten.
+RX_IDLE_TIMEOUT = float(os.getenv("RX_IDLE_TIMEOUT", "4.0"))
 
 # Protokoll-Konstanten
 MSG_AUDIO = 0x01
@@ -48,6 +58,7 @@ class AudioReceiver:
         self._client_connected = False
         self._stop = threading.Event()
         self._on_stop = on_stop  # Callback(pcm_bytes) beim Beenden einer Aufnahme
+        self._last_rx = 0.0      # Zeitpunkt der letzten empfangenen Daten (Watchdog)
 
     # --- Aufnahmesteuerung ---------------------------------------------------
     def start_recording(self) -> bool:
@@ -113,22 +124,32 @@ class AudioReceiver:
         srv.close()
 
     def _recv_exact(self, conn: socket.socket, n: int) -> bytes | None:
-        """Genau n Bytes lesen; None bei Verbindungsende."""
+        """Genau n Bytes lesen; None bei Verbindungsende oder RX-Watchdog."""
         buf = bytearray()
         while len(buf) < n and not self._stop.is_set():
             try:
                 chunk = conn.recv(n - len(buf))
             except socket.timeout:
+                # Watchdog: zu lange keine Daten während der Aufnahme -> getrennt
+                if self.is_recording and (time.time() - self._last_rx) > RX_IDLE_TIMEOUT:
+                    print("[Server] kein Audio mehr (Watchdog) – Aufnahme wird beendet.")
+                    return None
                 continue
             except OSError:
                 return None
             if not chunk:
                 return None
             buf.extend(chunk)
+            self._last_rx = time.time()
         return bytes(buf) if len(buf) == n else None
 
     def _handle_client(self, conn: socket.socket) -> None:
         conn.settimeout(1.0)
+        self._last_rx = time.time()
+        try:
+            conn.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        except OSError:
+            pass
         with conn:
             while not self._stop.is_set():
                 header = self._recv_exact(conn, 5)
@@ -150,10 +171,10 @@ class AudioReceiver:
 
     def _handle_control(self, command: int) -> None:
         if command == CTRL_START:
-            print("[Server] Knopf: START")
+            print("[Server] ESP: START (automatisch)")
             self.start_recording()
         elif command == CTRL_STOP:
-            print("[Server] Knopf: STOP")
+            print("[Server] ESP: STOP")
             pcm = self.stop_recording()
             self._on_stop(pcm)
 
@@ -188,8 +209,9 @@ def main() -> None:
     net_thread = threading.Thread(target=receiver.serve_forever, daemon=True)
     net_thread.start()
 
-    print("\nSteuerung normalerweise über die Knöpfe am ESP32.")
-    print("Tastatur:  s = starten | e = beenden | q = Server beenden\n")
+    print("\nDer ESP startet die Aufnahme automatisch beim Verbinden; beim "
+          "Trennen (Strom weg) wird sie beendet und ausgewertet.")
+    print("Tastatur (optional):  s = starten | e = beenden | q = Server beenden\n")
     try:
         while True:
             cmd = input().strip().lower()

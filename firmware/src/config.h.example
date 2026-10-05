@@ -39,36 +39,8 @@
 // lauter. Bei Übersteuerung erhöhen, bei zu leisem Ton verringern (Bereich ~8..14).
 #define MIC_SHIFT       11
 
-// ---- Knöpfe (Steuerung am ESP32) --------------------------------------------
-// Variante A (USE_TOGGLE_BUTTON 1): EIN Knopf als Start/Stop-Umschalter.
-//   Ideal, um den vorhandenen BOOT-Knopf zu nutzen – keine zusätzlichen Taster!
-//   BOOT-Pin je Board:  ESP32-S3 Zero = GPIO0 , ESP32-C3 Super Mini = GPIO9
-//   (BOOT nur im Betrieb drücken, NICHT beim Einschalten/Reset.)
-// Variante B (USE_TOGGLE_BUTTON 0): zwei getrennte Taster (Start + Stop).
-#define USE_TOGGLE_BUTTON 1
-#define TOGGLE_BUTTON_PIN 0   // BOOT auf ESP32-S3 Zero. C3 Super Mini: 9
-
-// Nur für Variante B (zwei Taster gegen GND, interner Pullup aktiv):
-#define START_BUTTON_PIN 1   // Aufnahme starten
-#define STOP_BUTTON_PIN  2   // Aufnahme beenden
-
-// Entprellzeit der Taster in Millisekunden
-#define BUTTON_DEBOUNCE_MS 50
-
-// ---- Energiesparen (Deep Sleep) ---------------------------------------------
-// Nach SLEEP_TIMEOUT_MS ohne laufende Aufnahme geht der ESP in Deep Sleep und
-// wacht per Knopfdruck wieder auf (danach ~2-3 s Neustart + WLAN-Reconnect).
-// 0 = aus.
-#define ENABLE_DEEP_SLEEP 1
-#define SLEEP_TIMEOUT_MS  60000   // 60 Sekunden
-
-// Weck-Pin – MUSS aus Deep Sleep wecken können!
-//   ESP32-S3 Zero: GPIO0 (BOOT) funktioniert.
-//   ESP32-C3:      NUR GPIO0..GPIO5 können wecken – GPIO9 (BOOT) geht NICHT!
-//                  Nimm am C3 z. B. GPIO1 als Knopf (dann TOGGLE_BUTTON_PIN
-//                  ebenfalls auf 1 setzen). Der Knopf braucht einen Pullup nach
-//                  3V3 (BOOT-Knopf hat ihn onboard; eigener Taster ggf. 10k).
-#define WAKE_BUTTON_PIN   0
+// Steuerung: KEINE Knöpfe. Strom an = verbinden + sofort aufnehmen.
+// Strom weg = der Server beendet und wertet die Aufnahme automatisch aus.
 
 // ---- Status-LED -------------------------------------------------------------
 // ESP32-S3 Zero: adressierbare WS2812-RGB-LED fest auf GPIO21.
@@ -85,8 +57,7 @@
 // LED-Bedeutung (bei WS2812 als Farbe):
 //   rot blinkend      = kein WLAN
 //   orange blinkend   = WLAN ok, aber kein Server
-//   grün (gedimmt)    = verbunden, wartet auf Start-Knopf
-//   rot (dauerhaft)   = Aufnahme läuft
+//   rot (dauerhaft)   = verbunden, Aufnahme läuft / streamt
 
 // -----------------------------------------------------------------------------
 // ALTERNATIVE: ESP32-C3 Super Mini
@@ -98,18 +69,10 @@
 //   #define I2S_WS_PIN      5
 //   #define I2S_SD_PIN      6
 //   #define MIC_LR_PIN      3
-//   // BOOT (GPIO9) kann NICHT aus Deep Sleep wecken. Bei ENABLE_DEEP_SLEEP 1
-//   // daher einen Knopf an GPIO0..GPIO5 verwenden (hier GPIO1) für Toggle UND Wecken:
-//   #define USE_TOGGLE_BUTTON 1
-//   #define TOGGLE_BUTTON_PIN 1
-//   #define WAKE_BUTTON_PIN   1
-//   // (ohne Deep Sleep ginge auch der BOOT-Knopf: TOGGLE_BUTTON_PIN 9)
-//   // (oder zwei eigene Taster: USE_TOGGLE_BUTTON 0 und START/STOP z. B. 10 / 7)
 //   // Onboard-LED ist eine einfache (active-low) LED auf GPIO8, kein WS2812:
 //   #define STATUS_LED_PIN        8
 //   #define STATUS_LED_IS_WS2812  0
 //   #define STATUS_LED_ACTIVE_LOW 1
 //
 // Die LED zeigt dann nur an/aus statt Farben (an = Aufnahme läuft / Verbindung
-// aktiv, blinkt bei fehlender Verbindung). Strapping-Pins 2/8/9 nicht für zwei
-// getrennte Taster verwenden (GPIO9 ist der BOOT-Knopf).
+// aktiv, blinkt bei fehlender Verbindung). VDD des INMP441 an 3,3 V.
