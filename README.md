@@ -269,7 +269,24 @@ python process_file.py recordings/meeting_20261001_152504.wav
 python process_file.py --all
 ```
 
-Die Einstellungen aus `.env` gelten dabei genauso (z. B. `ENABLE_SUMMARY`,
+**Transkript-Cache (wichtig bei langer Transkription):** Beim ersten Lauf wird
+das Transkript als `summaries/<name>.segments.json` gespeichert. Folgeläufe
+**transkribieren nicht erneut** (das spart die 20 Minuten Whisper), sondern laden
+den Cache in Sekunden. So kannst du Sprecher-Trennung und Zusammenfassung
+getrennt und beliebig oft laufen lassen:
+
+```powershell
+# NUR Sprecher-Trennung nachtraeglich (Transkript aus Cache, ohne Zusammenfassung)
+python process_file.py --diarize-only recordings/meeting_...wav
+
+# NUR neu zusammenfassen (Transkript aus Cache, ohne Sprecher-Trennung)
+python process_file.py --summary-only recordings/meeting_...wav
+
+# Cache ignorieren und wirklich neu transkribieren
+python process_file.py --no-cache recordings/meeting_...wav
+```
+
+Die Einstellungen aus `.env` gelten sonst genauso (z. B. `ENABLE_SUMMARY`,
 `WHISPER_MODEL`, `ENABLE_DIARIZATION`). Der Server muss dafür **nicht** laufen.
 Es funktioniert mit jeder 16-kHz-Mono-WAV – auch mit Aufnahmen aus anderer
 Quelle.
