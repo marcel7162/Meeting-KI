@@ -35,9 +35,19 @@ def _load_pipeline():
         raise RuntimeError("HUGGINGFACE_TOKEN fehlt (in .env eintragen).")
 
     print("[Diarize] lade pyannote-Pipeline ...")
-    pipeline = Pipeline.from_pretrained(
-        "pyannote/speaker-diarization-3.1", use_auth_token=token
-    )
+    model_id = "pyannote/speaker-diarization-3.1"
+    # pyannote 3.1+ nennt den Parameter "token"; aeltere Versionen "use_auth_token".
+    try:
+        pipeline = Pipeline.from_pretrained(model_id, token=token)
+    except TypeError:
+        pipeline = Pipeline.from_pretrained(model_id, use_auth_token=token)
+    if pipeline is None:
+        raise RuntimeError(
+            "pyannote-Pipeline konnte nicht geladen werden. Hast du die "
+            "Nutzungsbedingungen von 'pyannote/speaker-diarization-3.1' UND "
+            "'pyannote/segmentation-3.0' auf huggingface.co akzeptiert und ist der "
+            "HUGGINGFACE_TOKEN gueltig?"
+        )
 
     # Auf GPU verschieben, falls verfügbar
     try:
