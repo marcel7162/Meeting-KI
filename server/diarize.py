@@ -62,11 +62,25 @@ def _load_pipeline():
     return pipeline
 
 
+def _wav_to_tensor(wav_path: str):
+    """WAV selbst mit NumPy laden und als Torch-Tensor (1, N) @16 kHz liefern.
+
+    Vermeidet, dass pyannote die Datei über torchaudio/torchcodec lädt – das
+    bräuchte sonst installiertes FFmpeg (libtorchcodec_core*.dll)."""
+    import torch
+
+    from transcribe import WHISPER_SAMPLE_RATE, _load_audio
+
+    audio = _load_audio(wav_path)  # float32-Mono @16 kHz
+    waveform = torch.from_numpy(audio).unsqueeze(0)  # Form (1, Samples)
+    return {"waveform": waveform, "sample_rate": WHISPER_SAMPLE_RATE}
+
+
 def diarize(wav_path: str) -> list[SpeakerTurn]:
     """Ermittelt, wann welcher Sprecher aktiv war."""
     pipeline = _load_pipeline()
     print(f"[Diarize] analysiere Sprecher in {wav_path} ...")
-    annotation = pipeline(wav_path)
+    annotation = pipeline(_wav_to_tensor(wav_path))
 
     turns: list[SpeakerTurn] = []
     for segment, _, speaker in annotation.itertracks(yield_label=True):

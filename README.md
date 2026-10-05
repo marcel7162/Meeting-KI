@@ -447,6 +447,19 @@ git pull
 pip install -r requirements.txt   # stellt sicher, dass numpy vorhanden ist
 ```
 
+### Sprecher-Trennung: `libtorchcodec_core*.dll` / FFmpeg-Fehler
+
+**Ursache:** pyannote lädt Audio sonst über `torchaudio → torchcodec`, das
+installiertes **FFmpeg** braucht (auf Windows oft nicht vorhanden).
+
+**Lösung:** Dieses Projekt übergibt pyannote inzwischen das Audio **direkt als
+Tensor** (selbst mit NumPy geladen) – kein torchcodec/FFmpeg nötig. Einfach
+aktuellen Stand holen (`git pull`) und erneut ausführen, z. B.:
+
+```powershell
+python process_file.py --diarize-only recordings/meeting_...wav
+```
+
 ### Warnung: „huggingface_hub … symlinks … not supported"
 
 Nur eine **Warnung**, kein Fehler – das Whisper-Modell wird trotzdem geladen
